@@ -58,7 +58,7 @@ try {
     'PASS payload GET is non-consuming; POST claims once; secure headers and safe rendering'
   );
 
-  const server = await make({ redirect: 'https://example.com/next?x=1&y=2' });
+  const server = await make({ redirect: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
   assert.equal((await call(`/handoff?q=${server.q}`, { method: 'HEAD' })).status, 204);
   assert.equal(
     (await call(`/handoff?q=${server.q}`, { headers: { 'Sec-Purpose': 'prefetch' } })).status,
@@ -66,14 +66,14 @@ try {
   );
   const direct = await call(`/handoff?q=${server.q}`);
   assert.equal(direct.status, 302);
-  assert.equal(direct.headers.get('location'), 'https://example.com/next?x=1&y=2');
+  assert.equal(direct.headers.get('location'), 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
   assert.equal(await direct.text(), '');
   assert.equal((await call(`/handoff?q=${server.q}`)).status, 410);
   console.log(
     'PASS immediate HTTP redirect; HEAD and declared prefetch do not consume; replay is blocked'
   );
 
-  const browser = await make({ redirect: 'https://example.com/?q=%3C/script%3E' }, 'browser');
+  const browser = await make({ redirect: 'https://www.youtube.com/?q=%3C/script%3E' }, 'browser');
   const instant = await call(`/handoff?q=${browser.q}`);
   assert.equal(instant.status, 200);
   const html = await instant.text();

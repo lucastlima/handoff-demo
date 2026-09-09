@@ -164,6 +164,10 @@ test('redirect validation rejects schemes, credentials, deceptive hosts and port
     validatePayload({ redirect: 'https://maps.apple.com/?q=London' }).redirect,
     'https://maps.apple.com/?q=London'
   );
+  assert.equal(
+    validatePayload({ redirect: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }).redirect,
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+  );
 });
 test('payload limits count UTF-8 bytes and reject non-text values and forbidden keys', () => {
   for (const invalid of [

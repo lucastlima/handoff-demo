@@ -2,7 +2,12 @@
 export const TOKEN_MS = 15_000;
 export const SESSION_MS = 300_000;
 export const MAX_BYTES = 2048;
-export const DEFAULT_HOSTS = ['example.com', 'maps.apple.com', 'open.spotify.com'];
+export const DEFAULT_HOSTS = [
+  'www.youtube.com',
+  'youtube.com',
+  'maps.apple.com',
+  'open.spotify.com',
+];
 export class HandoffError extends Error {
   status: number;
   constructor(message: string, status = 400) {

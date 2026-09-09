@@ -29,6 +29,14 @@ const example = [
   { key: 'message', value: 'Pick up where you left off.' },
 ];
 
+const REDIRECT_PRESETS = [
+  { label: 'Add app redirect', url: 'https://maps.apple.com/?q=London' },
+  {
+    label: 'Add mystery redirect',
+    url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+  },
+] as const;
+
 export default function HandoffDemo() {
   const [rows, setRows] = useState(example);
   const [rotation, setRotation] = useState(true);
@@ -41,10 +49,19 @@ export default function HandoffDemo() {
       .then((data) => {
         if (Array.isArray(data.allowedRedirectHosts)) setHosts(data.allowedRedirectHosts);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
   const payload = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  const currentRedirect = rows.find((r) => r.key === 'redirect')?.value;
   const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+
+  function setRedirect(url: string) {
+    if (rows.some((r) => r.key === 'redirect')) {
+      setRows(rows.map((r) => (r.key === 'redirect' ? { ...r, value: url } : r)));
+    } else if (rows.length < 20) {
+      setRows([...rows, { key: 'redirect', value: url }]);
+    }
+  }
   function submit() {
     try {
       const keys = rows.map((row) => row.key);
@@ -98,8 +115,8 @@ export default function HandoffDemo() {
           },
           { signal: lifecycle.signal }
         )
-      ).catch(() => {});
-    } catch {}
+      ).catch(() => { });
+    } catch { }
     return () => lifecycle.abort();
   }, [handoff.phase, hosts]);
   return (
@@ -201,19 +218,18 @@ export default function HandoffDemo() {
                   <Plus size={17} /> Add a field
                 </Button>
                 <div className="payload-shortcuts">
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      if (!rows.some((row) => row.key === 'redirect') && rows.length < 20)
-                        setRows([
-                          ...rows,
-                          { key: 'redirect', value: 'https://maps.apple.com/?q=London' },
-                        ]);
-                    }}
-                    disabled={rows.some((row) => row.key === 'redirect') || rows.length >= 20}
-                  >
-                    <ArrowUpRight size={15} /> Add app redirect
-                  </Button>
+                  {REDIRECT_PRESETS.map((preset) => (
+                    <Button
+                      key={preset.url}
+                      variant="ghost"
+                      onClick={() => setRedirect(preset.url)}
+                      disabled={
+                        currentRedirect === preset.url || (rows.length >= 20 && !currentRedirect)
+                      }
+                    >
+                      <ArrowUpRight size={15} /> {preset.label}
+                    </Button>
+                  ))}
                 </div>
                 {'redirect' in payload && (
                   <div className="redirect-settings">

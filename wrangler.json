@@ -12,6 +12,6 @@
     }
   ],
   "vars": {
-    "ALLOWED_REDIRECT_HOSTS": "example.com,maps.apple.com,open.spotify.com"
+    "ALLOWED_REDIRECT_HOSTS": "www.youtube.com,youtube.com,maps.apple.com,open.spotify.com"
   }
 }

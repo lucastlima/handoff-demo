@@ -559,7 +559,9 @@ h1 span {
   }
 }
 .payload-shortcuts {
-  display: inline-block;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-left: 5px;
   color: #496982;
 }

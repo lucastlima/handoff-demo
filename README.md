@@ -82,7 +82,7 @@ Add a `redirect` payload field and select:
 - **Browser:** the Function validates and claims the token, then emits an inline `location.replace()` script before styles or page content. It waits for no bundle, load event, timer, or API call. The fallback is a direct anchor.
 - **No redirect field:** a small mobile page uses a POST to claim and display the payload. Merely fetching its HTML does not consume it.
 
-Edit `ALLOWED_REDIRECT_HOSTS` under `vars` in `wrangler.json` to configure exact HTTPS destinations. Defaults are `example.com`, `maps.apple.com`, and `open.spotify.com`. The supplied destination is not given additional payload parameters. Actual native app opening depends on app installation, domain associations, browser behavior, and user preferences.
+Edit `ALLOWED_REDIRECT_HOSTS` under `vars` in `wrangler.json` to configure exact HTTPS destinations. Defaults are `www.youtube.com`, `youtube.com`, `maps.apple.com`, and `open.spotify.com`. The supplied destination is not given additional payload parameters. Actual native app opening depends on app installation, domain associations, browser behavior, and user preferences.
 
 ## Handoff rules
 
