@@ -294,19 +294,19 @@ export default function HandoffDemo() {
               </div>
               {handoff.phase === 'waiting' ? (
                 <>
-                  <span className={`live-pill ${handoff.seconds <= 0 ? 'expired' : ''}`}>
-                    <span className={`status-dot ${handoff.seconds <= 0 ? 'error' : ''}`} />{' '}
-                    {handoff.seconds <= 0
+                  <span className={`live-pill ${handoff.isExpired ? 'expired' : ''}`}>
+                    <span className={`status-dot ${handoff.isExpired ? 'error' : ''}`} />{' '}
+                    {handoff.isExpired
                       ? 'CODE EXPIRED · SCAN TO TEST ERROR'
                       : 'WAITING FOR YOUR PHONE'}
                   </span>
-                  <h2>{handoff.seconds <= 0 ? 'Code expired.' : 'Over to your phone.'}</h2>
+                  <h2>{handoff.isExpired ? 'Code expired.' : 'Over to your phone.'}</h2>
                   <p className="scan-subtitle">
-                    {handoff.seconds <= 0
+                    {handoff.isExpired
                       ? 'Scan this expired code to see the rejection error on your phone.'
                       : 'Open your camera and scan the code.'}
                   </p>
-                  <div className={`qr-container ${handoff.seconds <= 0 ? 'expired' : ''}`}>
+                  <div className={`qr-container ${handoff.isExpired ? 'expired' : ''}`}>
                     {handoff.token ? (
                       <img
                         src={handoff.token.image}
@@ -321,24 +321,14 @@ export default function HandoffDemo() {
                       </div>
                     )}
                   </div>
-                  <div className="countdown">
-                    <span className="countdown-track">
-                      <span
-                        style={{
-                          width: `${(handoff.seconds / handoff.maxSeconds) * 100}%`,
-                        }}
-                      />
-                    </span>
-                    <span>{handoff.seconds}s left</span>
-                  </div>
                   {handoff.rotationPaused ? (
                     <div className="max-rotations-card">
                       <div className="max-rotations-text">
                         <strong>Max rotations reached (4/4)</strong>
                         <p>
-                          {handoff.seconds <= 0
+                          {handoff.isExpired
                             ? 'QRCode 4 is expired in the backend. Scan it with your phone to see the rejection error.'
-                            : 'Auto-rotation paused. QRCode 4 is active until the countdown reaches 0s.'}
+                            : 'Auto-rotation paused. QRCode 4 is active in the backend.'}
                         </p>
                       </div>
                       <Button

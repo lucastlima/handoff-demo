@@ -2,7 +2,7 @@ import QRCode from 'qrcode';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export const ROTATION_INTERVAL = 5;
-export const MAX_AUTO_ROTATIONS = 4; // Up to 4 automatic rotations (QR1 -> QR2 -> QR3 -> QR4)
+export const MAX_QR_CODES = 4; // Up to 4 QR codes (QR1 -> QR2 -> QR3 -> QR4)
 
 type TokenResponse = { q: string; issuedAt: number; expiresAt: number; serverNow: number };
 type Session = { id: string; owner: string; sessionExpiresAt: number; validUntil: number };
@@ -38,12 +38,11 @@ export function useHandoff(rotation: boolean) {
   const [phase, setPhase] = useState<Phase>('compose');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [seconds, setSeconds] = useState(0);
-  const [maxSeconds, setMaxSeconds] = useState(rotation ? ROTATION_INTERVAL : 15);
+  const [isExpired, setIsExpired] = useState(false);
   const [rotationPaused, setRotationPaused] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(300);
   const [copied, setCopied] = useState(false);
-  const autoRotationsDone = useRef(0);
+  const qrCodeCount = useRef(1);
   const generation = useRef(0),
     refreshing = useRef(false),
     phaseRef = useRef<Phase>('compose');
@@ -71,15 +70,9 @@ export function useHandoff(rotation: boolean) {
       currentToken.current = next;
       setToken(next);
       setCopied(false);
-      const isAuto = rotation && autoRotationsDone.current < MAX_AUTO_ROTATIONS;
-      setMaxSeconds(isAuto ? ROTATION_INTERVAL : 15);
-      setSeconds(
-        isAuto
-          ? Math.max(0, Math.ceil((next.rotateAt - performance.now()) / 1000))
-          : Math.max(0, Math.ceil((validUntil - performance.now()) / 1000))
-      );
+      setIsExpired(false);
     },
-    [rotation]
+    []
   );
   const create = useCallback(
     async (payload: Record<string, string>, mode: string) => {
@@ -88,8 +81,9 @@ export function useHandoff(rotation: boolean) {
       refreshing.current = true;
       setBusy(true);
       setError('');
-      autoRotationsDone.current = 0;
+      qrCodeCount.current = 1;
       setRotationPaused(false);
+      setIsExpired(false);
       try {
         const sent = performance.now();
         const data = await api<
@@ -130,16 +124,19 @@ export function useHandoff(rotation: boolean) {
       await renderToken(data, sent, generationId);
       if (generationId === generation.current) setError('');
     } catch (e) {
-      if (generationId === generation.current && phaseRef.current === 'waiting')
+      if (generationId === generation.current && phaseRef.current === 'waiting') {
+        qrCodeCount.current = Math.max(1, qrCodeCount.current - 1);
         setError(e instanceof Error ? e.message : 'Unable to refresh the code.');
+      }
     } finally {
       refreshing.current = false;
       setBusy(false);
     }
   }, [renderToken]);
   const manualRefresh = useCallback(async () => {
-    autoRotationsDone.current = 0;
+    qrCodeCount.current = 1;
     setRotationPaused(false);
+    setIsExpired(false);
     await refresh();
   }, [refresh]);
   useEffect(() => {
@@ -162,23 +159,19 @@ export function useHandoff(rotation: boolean) {
         return;
       }
       const t = currentToken.current;
-      const isAuto = rotation && autoRotationsDone.current < MAX_AUTO_ROTATIONS;
-      setMaxSeconds(isAuto ? ROTATION_INTERVAL : 15);
-      setRotationPaused(rotation && autoRotationsDone.current >= MAX_AUTO_ROTATIONS);
+      const isAuto = rotation && qrCodeCount.current < MAX_QR_CODES;
+      const isPaused = rotation && qrCodeCount.current >= MAX_QR_CODES;
+      setRotationPaused(isPaused);
 
-      if (isAuto && t) {
-        setSeconds(Math.max(0, Math.ceil((t.rotateAt - now) / 1000)));
-      } else if (t) {
-        setSeconds(Math.max(0, Math.ceil((t.validUntil - now) / 1000)));
-      } else {
-        setSeconds(0);
-      }
+      // Only mark expired when auto-rotation is done (or off) and the token has passed its 15s validity
+      const tokenExpired = Boolean(t && now > t.validUntil && (!rotation || isPaused));
+      setIsExpired(tokenExpired);
 
       if (document.hidden) return;
 
-      if (isAuto && (!t || now >= t.rotateAt) && now - lastRefresh > 2000) {
+      if (isAuto && t && now >= t.rotateAt && !refreshing.current && now - lastRefresh > 2000) {
         lastRefresh = now;
-        autoRotationsDone.current += 1;
+        qrCodeCount.current += 1;
         void refresh();
       }
 
@@ -279,8 +272,7 @@ export function useHandoff(rotation: boolean) {
     busy,
     error,
     setError,
-    seconds,
-    maxSeconds,
+    isExpired,
     rotationPaused,
     sessionSeconds,
     copied,
