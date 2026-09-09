@@ -1,6 +1,9 @@
 import QRCode from 'qrcode';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+export const ROTATION_INTERVAL = 5;
+export const MAX_AUTO_ROTATIONS = 4; // Up to 4 automatic rotations (QR1 -> QR2 -> QR3 -> QR4)
+
 type TokenResponse = { q: string; issuedAt: number; expiresAt: number; serverNow: number };
 type Session = { id: string; owner: string; sessionExpiresAt: number; validUntil: number };
 type Token = { link: string; image: string; validUntil: number; rotateAt: number };
@@ -29,15 +32,18 @@ async function api<T = Record<string, unknown>>(path: string, init: RequestInit 
     throw new ApiError(value.error || 'Unable to complete the request.', response.status);
   return value;
 }
-export function useHandoff(rotation: boolean, interval: number) {
+export function useHandoff(rotation: boolean) {
   const [session, setSession] = useState<Session | null>(null);
   const [token, setToken] = useState<Token | null>(null);
   const [phase, setPhase] = useState<Phase>('compose');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [seconds, setSeconds] = useState(0);
+  const [maxSeconds, setMaxSeconds] = useState(rotation ? ROTATION_INTERVAL : 15);
+  const [rotationPaused, setRotationPaused] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(300);
   const [copied, setCopied] = useState(false);
+  const autoRotationsDone = useRef(0);
   const generation = useRef(0),
     refreshing = useRef(false),
     phaseRef = useRef<Phase>('compose');
@@ -61,13 +67,19 @@ export function useHandoff(rotation: boolean, interval: number) {
       if (generationId !== generation.current || phaseRef.current !== 'waiting') return;
       if (validUntil <= performance.now())
         throw new Error('The code expired while loading. Generate a fresh code.');
-      const next = { link, image, validUntil, rotateAt: sent + interval * 1000 };
+      const next = { link, image, validUntil, rotateAt: sent + ROTATION_INTERVAL * 1000 };
       currentToken.current = next;
       setToken(next);
       setCopied(false);
-      setSeconds(Math.max(0, Math.ceil((validUntil - performance.now()) / 1000)));
+      const isAuto = rotation && autoRotationsDone.current < MAX_AUTO_ROTATIONS;
+      setMaxSeconds(isAuto ? ROTATION_INTERVAL : 15);
+      setSeconds(
+        isAuto
+          ? Math.max(0, Math.ceil((next.rotateAt - performance.now()) / 1000))
+          : Math.max(0, Math.ceil((validUntil - performance.now()) / 1000))
+      );
     },
-    [interval]
+    [rotation]
   );
   const create = useCallback(
     async (payload: Record<string, string>, mode: string) => {
@@ -76,6 +88,8 @@ export function useHandoff(rotation: boolean, interval: number) {
       refreshing.current = true;
       setBusy(true);
       setError('');
+      autoRotationsDone.current = 0;
+      setRotationPaused(false);
       try {
         const sent = performance.now();
         const data = await api<
@@ -123,6 +137,11 @@ export function useHandoff(rotation: boolean, interval: number) {
       setBusy(false);
     }
   }, [renderToken]);
+  const manualRefresh = useCallback(async () => {
+    autoRotationsDone.current = 0;
+    setRotationPaused(false);
+    await refresh();
+  }, [refresh]);
   useEffect(() => {
     if (phase !== 'waiting' || !session) return;
     let polling = false,
@@ -143,14 +162,28 @@ export function useHandoff(rotation: boolean, interval: number) {
         return;
       }
       const t = currentToken.current;
-      setSeconds(t ? Math.max(0, Math.ceil((t.validUntil - now) / 1000)) : 0);
+      const isAuto = rotation && autoRotationsDone.current < MAX_AUTO_ROTATIONS;
+      setMaxSeconds(isAuto ? ROTATION_INTERVAL : 15);
+      setRotationPaused(rotation && autoRotationsDone.current >= MAX_AUTO_ROTATIONS);
+
+      if (isAuto && t) {
+        setSeconds(Math.max(0, Math.ceil((t.rotateAt - now) / 1000)));
+      } else if (t) {
+        setSeconds(Math.max(0, Math.ceil((t.validUntil - now) / 1000)));
+      } else {
+        setSeconds(0);
+      }
+
       if (document.hidden) return;
-      if (rotation && (!t || now >= t.rotateAt) && now - lastRefresh > 2000) {
+
+      if (isAuto && (!t || now >= t.rotateAt) && now - lastRefresh > 2000) {
         lastRefresh = now;
+        autoRotationsDone.current += 1;
         void refresh();
       }
-      // Pause polling when rotation is off and the token is expired, plus 5s grace period for in-flight scans
-      const canClaim = rotation || (t && now <= t.validUntil + 5000);
+
+      // Pause polling when not actively rotating and the current token is expired (+5s grace)
+      const canClaim = isAuto || (t && now <= t.validUntil + 5000);
       if (!canClaim) return;
       if (t && t.link !== lastTokenKey) {
         lastTokenKey = t.link;
@@ -247,10 +280,12 @@ export function useHandoff(rotation: boolean, interval: number) {
     error,
     setError,
     seconds,
+    maxSeconds,
+    rotationPaused,
     sessionSeconds,
     copied,
     create,
-    refresh,
+    refresh: manualRefresh,
     finish,
     copy,
   };

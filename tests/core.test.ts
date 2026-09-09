@@ -191,3 +191,20 @@ test('raw capability secrets never appear in database rows', async () => {
   );
   sql.close();
 });
+test('issuing 4th token prunes expired 1st token leaving active 3-token sliding window', async () => {
+  const { db, sql } = fixture();
+  const s = await createSession(db, payload, 'server', undefined, 1000);
+  await issueToken(db, s.id, s.owner, 6000);
+  await issueToken(db, s.id, s.owner, 11000);
+  assert.equal(
+    sql.prepare('SELECT count(*) AS n FROM tokens WHERE session_id = ?').get(s.id)!.n,
+    3
+  );
+  await issueToken(db, s.id, s.owner, 16000);
+  assert.equal(
+    sql.prepare('SELECT count(*) AS n FROM tokens WHERE session_id = ?').get(s.id)!.n,
+    3
+  );
+  await assert.rejects(claim(db, s.q, 16000), isGone);
+  sql.close();
+});

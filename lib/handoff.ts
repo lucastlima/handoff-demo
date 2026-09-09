@@ -139,6 +139,11 @@ export async function status(db: D1Database, id: string, owner: string, now = Da
 }
 export async function issueToken(db: D1Database, id: string, owner: string, now = Date.now()) {
   const q = randomToken();
+  // Prune expired tokens for this session so only active overlapping tokens remain
+  await db
+    .prepare('DELETE FROM tokens WHERE session_id = ? AND expires_at <= ?')
+    .bind(id, now)
+    .run();
   // INSERT…SELECT checks ownership and active state in the same statement as issuance.
   const result = await db
     .prepare(`INSERT INTO tokens (hash, session_id, issued_at, expires_at)

@@ -32,10 +32,9 @@ const example = [
 export default function HandoffDemo() {
   const [rows, setRows] = useState(example);
   const [rotation, setRotation] = useState(true);
-  const [interval, setIntervalValue] = useState('10');
   const [mode, setMode] = useState('server');
   const [hosts, setHosts] = useState(DEFAULT_HOSTS);
-  const handoff = useHandoff(rotation, Number(interval));
+  const handoff = useHandoff(rotation);
   useEffect(() => {
     fetch('/api/config')
       .then((r) => r.json() as Promise<{ allowedRedirectHosts?: string[] }>)
@@ -249,29 +248,13 @@ export default function HandoffDemo() {
                 <div className="setting-line">
                   <div>
                     <h3>Keep your QR moving</h3>
-                    <p>Rotate the link automatically while you wait.</p>
+                    <p>Rotate the link automatically every 5 seconds.</p>
                   </div>
                   <Switch
                     aria-label="Rotate QR code"
                     checked={rotation}
                     onCheckedChange={setRotation}
                   />
-                </div>
-                <div className="setting-line">
-                  <span className="secondary-label">Refresh every</span>
-                  <RadioGroup
-                    className="interval-options"
-                    value={interval}
-                    onValueChange={(value) => setIntervalValue(String(value))}
-                    disabled={!rotation}
-                    aria-label="Rotation interval"
-                  >
-                    {['5', '10'].map((value) => (
-                      <label key={value}>
-                        <RadioGroupItem value={value} /> {value} seconds
-                      </label>
-                    ))}
-                  </RadioGroup>
                 </div>
                 <div className="info-note">
                   <ShieldCheck size={18} />
@@ -311,13 +294,20 @@ export default function HandoffDemo() {
               </div>
               {handoff.phase === 'waiting' ? (
                 <>
-                  <span className="live-pill">
-                    <span className="status-dot" /> WAITING FOR YOUR PHONE
+                  <span className={`live-pill ${handoff.seconds <= 0 ? 'expired' : ''}`}>
+                    <span className={`status-dot ${handoff.seconds <= 0 ? 'error' : ''}`} />{' '}
+                    {handoff.seconds <= 0
+                      ? 'CODE EXPIRED · SCAN TO TEST ERROR'
+                      : 'WAITING FOR YOUR PHONE'}
                   </span>
-                  <h2>Over to your phone.</h2>
-                  <p className="scan-subtitle">Open your camera and scan the code.</p>
-                  <div className="qr-container">
-                    {handoff.token && handoff.seconds > 0 ? (
+                  <h2>{handoff.seconds <= 0 ? 'Code expired.' : 'Over to your phone.'}</h2>
+                  <p className="scan-subtitle">
+                    {handoff.seconds <= 0
+                      ? 'Scan this expired code to see the rejection error on your phone.'
+                      : 'Open your camera and scan the code.'}
+                  </p>
+                  <div className={`qr-container ${handoff.seconds <= 0 ? 'expired' : ''}`}>
+                    {handoff.token ? (
                       <img
                         src={handoff.token.image}
                         alt="Scan to receive this handoff on your phone"
@@ -327,48 +317,65 @@ export default function HandoffDemo() {
                     ) : (
                       <div className="qr-empty">
                         <QrCode size={54} />
-                        <p>
-                          {handoff.busy ? 'Generating a fresh code…' : 'This code has expired.'}
-                        </p>
-                        <Button
-                          variant="outline"
-                          onClick={() => void handoff.refresh()}
-                          disabled={handoff.busy}
-                        >
-                          Generate new QR
-                        </Button>
+                        <p>{handoff.busy ? 'Generating a fresh code…' : 'No code active.'}</p>
                       </div>
                     )}
                   </div>
                   <div className="countdown">
                     <span className="countdown-track">
-                      <span style={{ width: `${(handoff.seconds / 15) * 100}%` }} />
+                      <span
+                        style={{
+                          width: `${(handoff.seconds / handoff.maxSeconds) * 100}%`,
+                        }}
+                      />
                     </span>
                     <span>{handoff.seconds}s left</span>
                   </div>
-                  <p className="rotation-note">
-                    <RefreshCw size={13} />{' '}
-                    {rotation ? `Refreshes every ${interval} seconds` : 'Automatic rotation is off'}
-                  </p>
+                  {handoff.rotationPaused ? (
+                    <div className="max-rotations-card">
+                      <div className="max-rotations-text">
+                        <strong>Max rotations reached (4/4)</strong>
+                        <p>
+                          {handoff.seconds <= 0
+                            ? 'QRCode 4 is expired in the backend. Scan it with your phone to see the rejection error.'
+                            : 'Auto-rotation paused. QRCode 4 is active until the countdown reaches 0s.'}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => void handoff.refresh()}
+                        disabled={handoff.busy}
+                      >
+                        <RefreshCw size={14} /> Restart for 4 more rotations
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="rotation-note">
+                      <RefreshCw size={13} />{' '}
+                      {rotation ? 'Refreshes every 5 seconds' : 'Automatic rotation is off'}
+                    </p>
+                  )}
                   <div className="scan-actions">
                     <Button
                       className="primary-action"
                       onClick={handoff.copy}
-                      disabled={!handoff.token || handoff.seconds <= 0}
+                      disabled={!handoff.token}
                     >
                       {handoff.copied ? <Check size={16} /> : <Copy size={16} />}
                       {handoff.copied ? 'Link copied' : 'Copy current link'}
                     </Button>
-                    <Button
-                      variant="outline"
-                      className="refresh-action"
-                      onClick={() => void handoff.refresh()}
-                      disabled={handoff.busy}
-                    >
-                      <RefreshCw size={16} /> Refresh
-                    </Button>
+                    {!handoff.rotationPaused && (
+                      <Button
+                        variant="outline"
+                        className="refresh-action"
+                        onClick={() => void handoff.refresh()}
+                        disabled={handoff.busy}
+                      >
+                        <RefreshCw size={16} /> Refresh
+                      </Button>
+                    )}
                   </div>
-                  {handoff.token && handoff.seconds > 0 && (
+                  {handoff.token && (
                     <input
                       className="share-link"
                       aria-label="Current handoff link"
