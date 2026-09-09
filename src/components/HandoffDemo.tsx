@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import { useHandoff } from '@/hooks/use-handoff';
 import { DEFAULT_HOSTS, validatePayload } from '../../lib/handoff';
@@ -32,7 +31,7 @@ const example = [
 const REDIRECT_PRESETS = [
   { label: 'Add app redirect', url: 'https://maps.apple.com/?q=London' },
   {
-    label: 'Add mystery redirect',
+    label: 'Add Easter Egg redirect',
     url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
   },
 ] as const;
@@ -40,7 +39,6 @@ const REDIRECT_PRESETS = [
 export default function HandoffDemo() {
   const [rows, setRows] = useState(example);
   const [rotation, setRotation] = useState(true);
-  const [mode, setMode] = useState('server');
   const [hosts, setHosts] = useState(DEFAULT_HOSTS);
   const handoff = useHandoff(rotation);
   useEffect(() => {
@@ -49,7 +47,7 @@ export default function HandoffDemo() {
       .then((data) => {
         if (Array.isArray(data.allowedRedirectHosts)) setHosts(data.allowedRedirectHosts);
       })
-      .catch(() => { });
+      .catch(() => {});
   }, []);
   const payload = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   const currentRedirect = rows.find((r) => r.key === 'redirect')?.value;
@@ -67,7 +65,7 @@ export default function HandoffDemo() {
       const keys = rows.map((row) => row.key);
       if (new Set(keys).size !== keys.length) throw new Error('Each field needs a unique key.');
       validatePayload(payload, hosts);
-      void handoff.create(payload, mode);
+      void handoff.create(payload, 'server');
     } catch (error) {
       handoff.setError(error instanceof Error ? error.message : 'Check your payload.');
     }
@@ -115,8 +113,8 @@ export default function HandoffDemo() {
           },
           { signal: lifecycle.signal }
         )
-      ).catch(() => { });
-    } catch { }
+      ).catch(() => {});
+    } catch {}
     return () => lifecycle.abort();
   }, [handoff.phase, hosts]);
   return (
@@ -233,30 +231,14 @@ export default function HandoffDemo() {
                 </div>
                 {'redirect' in payload && (
                   <div className="redirect-settings">
-                    <h3>Redirect on scan</h3>
-                    <RadioGroup
-                      value={mode}
-                      onValueChange={(v) => setMode(String(v))}
-                      aria-label="Redirect method"
-                      className="redirect-options"
-                    >
-                      <label>
-                        <RadioGroupItem value="server" />
-                        <span>
-                          Server redirect <small>Direct HTTP response · default</small>
-                        </span>
-                      </label>
-                      <label>
-                        <RadioGroupItem value="browser" />
-                        <span>
-                          Instant browser redirect{' '}
-                          <small>First inline script · no page-load wait</small>
-                        </span>
-                      </label>
-                    </RadioGroup>
-                    <p>Allowed destinations: {hosts.join(', ')}.</p>
+                    <h3>App-to-app redirect</h3>
                     <p>
-                      Opening a redirect link uses it immediately, including some link previews.
+                      Leverages iOS Universal Links and Android App Links to open the installed
+                      native app directly when scanned from the phone camera, seamlessly falling
+                      back to the mobile browser if the app isn't installed.
+                    </p>
+                    <p className="redirect-destinations">
+                      Allowed destinations: {hosts.join(', ')}.
                     </p>
                   </div>
                 )}
@@ -458,7 +440,9 @@ export default function HandoffDemo() {
               <div className="redirect-hint">
                 <ArrowUpRight size={18} />
                 <span>
-                  Add a <code>redirect</code> field to continue to a website or app.
+                  {'redirect' in payload
+                    ? 'Uses iOS Universal Links & Android App Links to open the native app.'
+                    : 'Add a redirect field to continue to an installed app or website.'}
                 </span>
               </div>
             </section>
