@@ -1,0 +1,52 @@
+{
+  "name": "handoff-pages",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "dev": "npm run build:client && wrangler pages dev dist --port 8788",
+    "generate-routes": "tsr generate",
+    "build": "npm run typecheck && npm run build:client && npm run build:functions",
+    "preview": "wrangler pages dev dist --port 8788",
+    "dev:ui": "vite --host 0.0.0.0",
+    "build:client": "vite build",
+    "build:functions": "wrangler pages functions build functions --outdir .wrangler/pages-build",
+    "typecheck": "npm run generate-routes && tsc --noEmit",
+    "db:migrate": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "deploy": "node scripts/check-deployment.mjs && npm run build && npm run db:migrate:remote && wrangler pages deploy dist --branch main",
+    "test": "node --experimental-strip-types --test tests/core.test.ts tests/pages.test.ts",
+    "test:http": "node tests/http.mjs"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.8.0",
+    "@tanstack/react-router": "latest",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.43.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260908.1",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tanstack/router-cli": "^1.132.0",
+    "@tanstack/router-plugin": "latest",
+    "@types/node": "^22.10.2",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0",
+    "wrangler": "^4.130.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

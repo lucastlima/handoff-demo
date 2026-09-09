@@ -1,0 +1,17 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "handoff-pages",
+	"pages_build_output_dir": "./dist",
+	"compatibility_date": "2026-05-15",
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "handoff-pages",
+			"database_id": "6714e97c-bc0a-4fac-aa96-fbb0f062d0a4",
+			"migrations_dir": "migrations"
+		}
+	],
+	"vars": {
+		"ALLOWED_REDIRECT_HOSTS": "example.com,maps.apple.com,open.spotify.com"
+	}
+}
