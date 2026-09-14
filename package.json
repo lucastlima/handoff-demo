@@ -1,5 +1,5 @@
 {
-  "name": "handoff-pages",
+  "name": "handoff-demo",
   "private": true,
   "type": "module",
   "imports": {
