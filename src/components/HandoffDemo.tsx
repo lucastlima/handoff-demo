@@ -1,8 +1,9 @@
-import { ArrowLeft, Check, Copy, ExternalLink, Plus, RotateCw, X } from 'lucide-react';
+import { ArrowLeft, Check, Copy, ExternalLink, Plus, RotateCw, Share2, X } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { MAX_QR_CODES, useHandoff } from '@/hooks/use-handoff';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { DEFAULT_HOSTS, validatePayload } from '../../lib/handoff';
 
 const DEFAULT_FIELDS = [
@@ -20,8 +21,14 @@ export default function HandoffDemo() {
   const [rows, setRows] = useState(DEFAULT_FIELDS);
   const [rotation, setRotation] = useState(true);
   const [hosts, setHosts] = useState(DEFAULT_HOSTS);
+  const [previewAnyway, setPreviewAnyway] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
   const rotationId = useId();
-  const handoff = useHandoff(rotation);
+  const isMobile = useIsMobile();
+  const handoff = useHandoff(rotation, isMobile);
+
+  const originUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   useEffect(() => {
     fetch('/api/config')
@@ -35,6 +42,27 @@ export default function HandoffDemo() {
   const payload = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   const currentRedirect = rows.find((r) => r.key === 'redirect')?.value;
   const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+
+  function copyDemoUrl() {
+    if (!navigator.clipboard) return;
+    void navigator.clipboard
+      .writeText(window.location.href)
+      .then(() => {
+        setUrlCopied(true);
+        window.setTimeout(() => setUrlCopied(false), 2000);
+      })
+      .catch(() => {});
+  }
+
+  function shareDemoUrl() {
+    if (!navigator.share) return;
+    void navigator
+      .share({
+        title: 'QR Handoff Demo',
+        url: window.location.href,
+      })
+      .catch(() => {});
+  }
 
   function setRedirect(url: string) {
     if (rows.some((r) => r.key === 'redirect')) {
@@ -108,6 +136,8 @@ export default function HandoffDemo() {
     return () => lifecycle.abort();
   }, [handoff.phase, hosts]);
 
+  const showMobileGate = isMobile && !previewAnyway;
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -134,8 +164,68 @@ export default function HandoffDemo() {
           </p>
         </header>
 
+        {isMobile && previewAnyway && (
+          <div className="mobile-preview-banner">
+            <span>Previewing composer on mobile — QR rendering is disabled on mobile screens.</span>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                if (handoff.phase !== 'compose') void handoff.finish();
+                setPreviewAnyway(false);
+              }}
+            >
+              Exit mobile preview
+            </button>
+          </div>
+        )}
+
         <div className="workbench">
-          {handoff.phase === 'compose' ? (
+          {showMobileGate ? (
+            <section className="panel mobile-gate">
+              <span className="status-badge">Mobile browser</span>
+              <h2>Open this demo on a desktop screen</h2>
+              <p>
+                This prototype starts a session on desktop and displays a rotating QR code for your
+                phone camera to scan. Since you are already on a phone, open this URL on your laptop
+                or desktop to try the full two-device flow.
+              </p>
+
+              <div className="gate-actions">
+                <Button className="primary-action" onClick={copyDemoUrl}>
+                  {urlCopied ? <Check size={15} /> : <Copy size={15} />}
+                  {urlCopied ? 'Copied URL' : 'Copy URL for desktop'}
+                </Button>
+                {canShare && (
+                  <Button variant="outline" className="share-btn" onClick={shareDemoUrl}>
+                    <Share2 size={15} /> Send to desktop
+                  </Button>
+                )}
+              </div>
+
+              {originUrl && (
+                <div className="url-readout">
+                  <input
+                    className="share-link"
+                    aria-label="Demo URL"
+                    value={originUrl}
+                    readOnly
+                    onFocus={(event) => event.target.select()}
+                  />
+                </div>
+              )}
+
+              <div className="gate-escape">
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => setPreviewAnyway(true)}
+                >
+                  Preview payload composer anyway (without QR) →
+                </button>
+              </div>
+            </section>
+          ) : handoff.phase === 'compose' ? (
             <section className="panel editor">
               <fieldset disabled={handoff.busy} className="editor-fields">
                 <div className="panel-heading">
@@ -229,9 +319,9 @@ export default function HandoffDemo() {
                 {'redirect' in payload && (
                   <div className="redirect-callout">
                     <p>
-                      <strong>HTTP 302 redirect active.</strong> Scanning claims the token and
-                      redirects immediately instead of rendering the payload viewer (triggers iOS
-                      Universal Links / Android App Links when installed).
+                      <strong>HTTP 302 redirect active.</strong> Redeeming the token redirects
+                      immediately instead of rendering the payload viewer (triggers iOS Universal
+                      Links / Android App Links when installed).
                     </p>
                     <p className="callout-meta">Allowed hosts: {hosts.join(', ')}</p>
                   </div>
@@ -241,9 +331,9 @@ export default function HandoffDemo() {
 
                 <div className="setting-line">
                   <label htmlFor={rotationId} className="setting-copy">
-                    <span className="setting-title">Auto-rotate QR every 5 seconds</span>
+                    <span className="setting-title">Auto-rotate token every 5 seconds</span>
                     <span className="setting-desc">
-                      Each token stays valid for 15s so in-flight camera scans still succeed.
+                      Each token stays valid for 15s so in-flight scans still succeed.
                     </span>
                   </label>
                   <Switch id={rotationId} checked={rotation} onCheckedChange={setRotation} />
@@ -262,7 +352,11 @@ export default function HandoffDemo() {
                     disabled={bytes > 2048 || handoff.busy}
                     onClick={submit}
                   >
-                    {handoff.busy ? 'Creating session…' : 'Generate QR code'}
+                    {handoff.busy
+                      ? 'Creating session…'
+                      : isMobile
+                        ? 'Create handoff link'
+                        : 'Generate QR code'}
                   </Button>
                 </div>
               </fieldset>
@@ -290,28 +384,38 @@ export default function HandoffDemo() {
                     <span className={`status-badge ${handoff.isExpired ? 'expired' : 'live'}`}>
                       {handoff.isExpired ? 'Expired' : 'Active'}
                     </span>
-                    <h2>{handoff.isExpired ? 'Token expired' : 'Scan with phone camera'}</h2>
+                    <h2>
+                      {handoff.isExpired
+                        ? 'Token expired'
+                        : isMobile
+                          ? 'Handoff link ready'
+                          : 'Scan with phone camera'}
+                    </h2>
                     <p className="scan-subtitle">
                       {handoff.isExpired
-                        ? 'This token passed its 15-second TTL. Scan it or open the link below to verify the backend 410 response.'
-                        : 'Scan the QR code on your phone, or open the link in a new tab to test the claim flow locally.'}
+                        ? 'This token passed its 15-second TTL. Open the link below to verify the backend 410 response.'
+                        : isMobile
+                          ? 'QR rendering is hidden on mobile devices. Open the single-use link below to test the claim flow.'
+                          : 'Scan the QR code on your phone, or open the link in a new tab to test the claim flow locally.'}
                     </p>
                   </div>
 
-                  <div className={`qr-frame ${handoff.isExpired ? 'expired' : ''}`}>
-                    {handoff.token ? (
-                      <img
-                        src={handoff.token.image}
-                        alt="QR code for mobile handoff"
-                        width={260}
-                        height={260}
-                      />
-                    ) : (
-                      <div className="qr-empty">
-                        <p>{handoff.busy ? 'Issuing token…' : 'No active token'}</p>
-                      </div>
-                    )}
-                  </div>
+                  {!isMobile && (
+                    <div className={`qr-frame ${handoff.isExpired ? 'expired' : ''}`}>
+                      {handoff.token?.image ? (
+                        <img
+                          src={handoff.token.image}
+                          alt="QR code for mobile handoff"
+                          width={260}
+                          height={260}
+                        />
+                      ) : (
+                        <div className="qr-empty">
+                          <p>{handoff.busy ? 'Issuing token…' : 'No active token'}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {handoff.rotationPaused ? (
                     <div className="rotation-paused">
@@ -422,15 +526,17 @@ export default function HandoffDemo() {
           )}
 
           <aside className="sidebar">
-            <section className="sidebar-card">
-              <div className="sidebar-heading">
-                <h2>Request JSON</h2>
-                <span className="mono-meta">
-                  {rows.length} {rows.length === 1 ? 'key' : 'keys'} · {bytes} B
-                </span>
-              </div>
-              <pre className="json-preview">{JSON.stringify(payload, null, 2)}</pre>
-            </section>
+            {!showMobileGate && (
+              <section className="sidebar-card">
+                <div className="sidebar-heading">
+                  <h2>Request JSON</h2>
+                  <span className="mono-meta">
+                    {rows.length} {rows.length === 1 ? 'key' : 'keys'} · {bytes} B
+                  </span>
+                </div>
+                <pre className="json-preview">{JSON.stringify(payload, null, 2)}</pre>
+              </section>
+            )}
 
             <section className="sidebar-card">
               <div className="sidebar-heading">

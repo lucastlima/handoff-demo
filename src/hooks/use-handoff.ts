@@ -6,7 +6,7 @@ export const MAX_QR_CODES = 4; // Up to 4 QR codes (QR1 -> QR2 -> QR3 -> QR4)
 
 type TokenResponse = { q: string; issuedAt: number; expiresAt: number; serverNow: number };
 type Session = { id: string; owner: string; sessionExpiresAt: number; validUntil: number };
-type Token = { link: string; image: string; validUntil: number; rotateAt: number };
+type Token = { link: string; image: string | null; validUntil: number; rotateAt: number };
 export type Phase = 'compose' | 'waiting' | 'complete' | 'expired';
 class ApiError extends Error {
   status: number;
@@ -32,7 +32,7 @@ async function api<T = Record<string, unknown>>(path: string, init: RequestInit 
     throw new ApiError(value.error || 'Unable to complete the request.', response.status);
   return value;
 }
-export function useHandoff(rotation: boolean) {
+export function useHandoff(rotation: boolean, skipQr = false) {
   const [session, setSession] = useState<Session | null>(null);
   const [token, setToken] = useState<Token | null>(null);
   const [phase, setPhase] = useState<Phase>('compose');
@@ -58,12 +58,14 @@ export function useHandoff(rotation: boolean) {
       // Subtract the full request round trip so clock skew never extends the visible lifetime.
       const validUntil = sent + data.expiresAt - data.serverNow;
       const link = `${location.origin}/handoff?q=${data.q}`;
-      const image = await QRCode.toDataURL(link, {
-        width: 320,
-        margin: 3,
-        errorCorrectionLevel: 'M',
-        color: { dark: '#18181b', light: '#ffffff' },
-      });
+      const image = skipQr
+        ? null
+        : await QRCode.toDataURL(link, {
+            width: 320,
+            margin: 3,
+            errorCorrectionLevel: 'M',
+            color: { dark: '#18181b', light: '#ffffff' },
+          });
       if (generationId !== generation.current || phaseRef.current !== 'waiting') return;
       if (validUntil <= performance.now())
         throw new Error('The code expired while loading. Generate a fresh code.');
@@ -73,7 +75,7 @@ export function useHandoff(rotation: boolean) {
       setCopied(false);
       setIsExpired(false);
     },
-    []
+    [skipQr]
   );
   const create = useCallback(
     async (payload: Record<string, string>, mode: string) => {
