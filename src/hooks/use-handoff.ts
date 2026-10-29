@@ -2,12 +2,13 @@ import QRCode from 'qrcode';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export const ROTATION_INTERVAL = 5;
-export const MAX_QR_CODES = 4; // Up to 4 QR codes (QR1 -> QR2 -> QR3 -> QR4)
+export const MAX_QR_CODES = 4;
 
 type TokenResponse = { q: string; issuedAt: number; expiresAt: number; serverNow: number };
-type Session = { id: string; owner: string; sessionExpiresAt: number; validUntil: number };
+type Session = { id: string; owner: string; validUntil: number };
 type Token = { link: string; image: string | null; validUntil: number; rotateAt: number };
 export type Phase = 'compose' | 'waiting' | 'complete' | 'expired';
+
 class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -15,23 +16,22 @@ class ApiError extends Error {
     this.status = status;
   }
 }
-async function api<T = Record<string, unknown>>(path: string, init: RequestInit = {}) {
+
+async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,
     cache: 'no-store',
     signal: AbortSignal.timeout(10000),
     headers: { 'Content-Type': 'application/json', ...init.headers },
   });
-  let value: T & { error?: string };
-  try {
-    value = (await response.json()) as T & { error?: string };
-  } catch {
-    throw new Error('The service is unavailable. Please try again.');
+  const data = (await response.json().catch(() => null)) as (T & { error?: string }) | null;
+  if (!data) throw new Error('The service is unavailable. Please try again.');
+  if (!response.ok) {
+    throw new ApiError(data.error || 'Unable to complete the request.', response.status);
   }
-  if (!response.ok)
-    throw new ApiError(value.error || 'Unable to complete the request.', response.status);
-  return value;
+  return data;
 }
+
 export function useHandoff(rotation: boolean, skipQr = false) {
   const [session, setSession] = useState<Session | null>(null);
   const [token, setToken] = useState<Token | null>(null);
@@ -39,24 +39,19 @@ export function useHandoff(rotation: boolean, skipQr = false) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [isExpired, setIsExpired] = useState(false);
-  const [rotationPaused, setRotationPaused] = useState(false);
+  const [tokenNumber, setTokenNumber] = useState(1);
   const [sessionSeconds, setSessionSeconds] = useState(300);
   const [copied, setCopied] = useState(false);
-  const [tokenNumber, setTokenNumber] = useState(1);
-  const qrCodeCount = useRef(1);
-  const generation = useRef(0),
-    refreshing = useRef(false),
-    phaseRef = useRef<Phase>('compose');
-  const currentSession = useRef<Session | null>(null),
-    currentToken = useRef<Token | null>(null);
-  const moveTo = useCallback((value: Phase) => {
-    phaseRef.current = value;
-    setPhase(value);
-  }, []);
-  const renderToken = useCallback(
-    async (data: TokenResponse, sent: number, generationId: number) => {
-      // Subtract the full request round trip so clock skew never extends the visible lifetime.
-      const validUntil = sent + data.expiresAt - data.serverNow;
+
+  const runId = useRef(0);
+  const busyRef = useRef(false);
+
+  const rotationPaused = rotation && tokenNumber >= MAX_QR_CODES;
+
+  const buildToken = useCallback(
+    async (data: TokenResponse, sentAt: number): Promise<Token> => {
+      // Subtract full round-trip so local clock skew never extends perceived validity.
+      const validUntil = sentAt + data.expiresAt - data.serverNow;
       const link = `${location.origin}/handoff?q=${data.q}`;
       const image = skipQr
         ? null
@@ -66,213 +61,201 @@ export function useHandoff(rotation: boolean, skipQr = false) {
             errorCorrectionLevel: 'M',
             color: { dark: '#18181b', light: '#ffffff' },
           });
-      if (generationId !== generation.current || phaseRef.current !== 'waiting') return;
-      if (validUntil <= performance.now())
+      if (validUntil <= performance.now()) {
         throw new Error('The code expired while loading. Generate a fresh code.');
-      const next = { link, image, validUntil, rotateAt: sent + ROTATION_INTERVAL * 1000 };
-      currentToken.current = next;
-      setToken(next);
-      setCopied(false);
-      setIsExpired(false);
+      }
+      return { link, image, validUntil, rotateAt: sentAt + ROTATION_INTERVAL * 1000 };
     },
     [skipQr]
   );
+
   const create = useCallback(
-    async (payload: Record<string, string>, mode: string) => {
-      if (refreshing.current) return;
-      const generationId = ++generation.current;
-      refreshing.current = true;
+    async (payload: Record<string, string>) => {
+      if (busyRef.current) return;
+      const id = ++runId.current;
+      busyRef.current = true;
       setBusy(true);
       setError('');
-      qrCodeCount.current = 1;
       setTokenNumber(1);
-      setRotationPaused(false);
       setIsExpired(false);
+
       try {
-        const sent = performance.now();
+        const sentAt = performance.now();
         const data = await api<
           TokenResponse & { id: string; owner: string; sessionExpiresAt: number }
-        >('/api/sessions', { method: 'POST', body: JSON.stringify({ payload, mode }) });
-        if (generationId !== generation.current) return;
-        const next = {
+        >('/api/sessions', { method: 'POST', body: JSON.stringify({ payload }) });
+        if (id !== runId.current) return;
+
+        const nextToken = await buildToken(data, sentAt);
+        if (id !== runId.current) return;
+
+        setSession({
           id: data.id,
           owner: data.owner,
-          sessionExpiresAt: data.sessionExpiresAt,
-          validUntil: sent + data.sessionExpiresAt - data.serverNow,
-        };
-        currentSession.current = next;
-        setSession(next);
-        moveTo('waiting');
-        await renderToken(data, sent, generationId);
+          validUntil: sentAt + data.sessionExpiresAt - data.serverNow,
+        });
+        setToken(nextToken);
+        setCopied(false);
+        setPhase('waiting');
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Unable to create handoff.');
+        if (id === runId.current) {
+          setError(e instanceof Error ? e.message : 'Unable to create handoff.');
+        }
       } finally {
-        refreshing.current = false;
+        busyRef.current = false;
         setBusy(false);
       }
     },
-    [moveTo, renderToken]
+    [buildToken]
   );
-  const refresh = useCallback(async () => {
-    const s = currentSession.current;
-    if (!s || refreshing.current || phaseRef.current !== 'waiting') return;
-    const generationId = generation.current;
-    refreshing.current = true;
-    setBusy(true);
-    try {
-      const sent = performance.now();
-      const data = await api<TokenResponse>(`/api/sessions/${s.id}/tokens`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${s.owner}` },
-      });
-      await renderToken(data, sent, generationId);
-      if (generationId === generation.current) setError('');
-    } catch (e) {
-      if (generationId === generation.current && phaseRef.current === 'waiting') {
-        qrCodeCount.current = Math.max(1, qrCodeCount.current - 1);
-        setTokenNumber(qrCodeCount.current);
-        setError(e instanceof Error ? e.message : 'Unable to refresh the code.');
+
+  const issueNext = useCallback(
+    async (nextNumber: number) => {
+      if (!session || busyRef.current) return;
+      const id = runId.current;
+      busyRef.current = true;
+      setBusy(true);
+
+      try {
+        const sentAt = performance.now();
+        const data = await api<TokenResponse>(`/api/sessions/${session.id}/tokens`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.owner}` },
+        });
+        if (id !== runId.current) return;
+
+        const nextToken = await buildToken(data, sentAt);
+        if (id !== runId.current) return;
+
+        setToken(nextToken);
+        setTokenNumber(nextNumber);
+        setCopied(false);
+        setIsExpired(false);
+        setError('');
+      } catch (e) {
+        if (id === runId.current) {
+          setError(e instanceof Error ? e.message : 'Unable to refresh the code.');
+        }
+      } finally {
+        busyRef.current = false;
+        setBusy(false);
       }
-    } finally {
-      refreshing.current = false;
-      setBusy(false);
-    }
-  }, [renderToken]);
-  const manualRefresh = useCallback(async () => {
-    qrCodeCount.current = 1;
-    setTokenNumber(1);
-    setRotationPaused(false);
-    setIsExpired(false);
-    await refresh();
-  }, [refresh]);
+    },
+    [session, buildToken]
+  );
+
+  const refresh = useCallback(() => issueNext(1), [issueNext]);
+
+  // Local countdown + 5s auto-rotation timer
   useEffect(() => {
     if (phase !== 'waiting' || !session) return;
-    let polling = false,
-      lastPoll = 0,
-      lastRefresh = 0,
-      stopped = false,
-      lastTokenKey = '';
-    const generationId = generation.current;
-    const update = () => {
-      if (stopped || phaseRef.current !== 'waiting') return;
+
+    const tick = () => {
       const now = performance.now();
       const remaining = Math.max(0, Math.ceil((session.validUntil - now) / 1000));
       setSessionSeconds(remaining);
-      if (!remaining) {
-        currentToken.current = null;
+
+      if (remaining === 0) {
         setToken(null);
-        moveTo('expired');
+        setPhase('expired');
         return;
       }
-      const t = currentToken.current;
-      const isAuto = rotation && qrCodeCount.current < MAX_QR_CODES;
-      const isPaused = rotation && qrCodeCount.current >= MAX_QR_CODES;
-      setRotationPaused(isPaused);
 
-      // Only mark expired when auto-rotation is done (or off) and the token has passed its 15s validity
-      const tokenExpired = Boolean(t && now > t.validUntil && (!rotation || isPaused));
-      setIsExpired(tokenExpired);
+      if (!token) return;
+      const isAuto = rotation && tokenNumber < MAX_QR_CODES;
+      setIsExpired(now > token.validUntil && !isAuto);
 
-      if (document.hidden) return;
-
-      if (isAuto && t && now >= t.rotateAt && !refreshing.current && now - lastRefresh > 2000) {
-        lastRefresh = now;
-        qrCodeCount.current += 1;
-        setTokenNumber(qrCodeCount.current);
-        void refresh();
+      if (isAuto && !document.hidden && now >= token.rotateAt && !busyRef.current) {
+        void issueNext(tokenNumber + 1);
       }
+    };
 
-      // Pause polling when not actively rotating and the current token is expired (+5s grace)
-      const canClaim = isAuto || (t && now <= t.validUntil + 5000);
-      if (!canClaim) return;
-      if (t && t.link !== lastTokenKey) {
-        lastTokenKey = t.link;
-        lastPoll = 0;
-      }
-      if (!polling && now - lastPoll > 2000) {
-        polling = true;
-        lastPoll = now;
-        void api<{ status: 'waiting' | 'complete' | 'expired' }>(`/api/sessions/${session.id}`, {
-          headers: { Authorization: `Bearer ${session.owner}` },
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [phase, session, token, rotation, tokenNumber, issueNext]);
+
+  // 2s backend claim-status polling (pauses when tab is hidden or static token has long expired)
+  useEffect(() => {
+    if (phase !== 'waiting' || !session || !token) return;
+
+    const id = runId.current;
+    let inFlight = false;
+
+    const poll = () => {
+      if (inFlight || document.hidden) return;
+      const isAuto = rotation && tokenNumber < MAX_QR_CODES;
+      if (!isAuto && performance.now() > token.validUntil + 5000) return;
+
+      inFlight = true;
+      void api<{ status: 'waiting' | 'complete' | 'expired' }>(`/api/sessions/${session.id}`, {
+        headers: { Authorization: `Bearer ${session.owner}` },
+      })
+        .then((data) => {
+          if (id !== runId.current || data.status === 'waiting') return;
+          setToken(null);
+          setError('');
+          setPhase(data.status);
         })
-          .then((data) => {
-            if (stopped || generationId !== generation.current) return;
-            if (data.status !== 'waiting') {
-              currentToken.current = null;
-              setToken(null);
-              setError('');
-              moveTo(data.status);
-            }
-          })
-          .catch((e) => {
-            if (stopped || generationId !== generation.current) return;
-            if (e instanceof ApiError && (e.status === 404 || e.status === 410)) {
-              currentToken.current = null;
-              setToken(null);
-              moveTo('expired');
-            } else
-              setError(
-                'Connection interrupted. Expired codes are hidden; reconnect or generate a fresh code.'
-              );
-          })
-          .finally(() => {
-            polling = false;
-          });
-      }
+        .catch((e) => {
+          if (id !== runId.current) return;
+          if (e instanceof ApiError && (e.status === 404 || e.status === 410)) {
+            setToken(null);
+            setPhase('expired');
+          } else {
+            setError('Connection interrupted. Reconnect or generate a fresh code.');
+          }
+        })
+        .finally(() => {
+          inFlight = false;
+        });
     };
-    update();
-    const timer = window.setInterval(update, 250);
-    const resume = () => {
-      if (!document.hidden) {
-        lastPoll = 0;
-        update();
-      }
-    };
-    document.addEventListener('visibilitychange', resume);
+
+    poll();
+    const interval = window.setInterval(poll, 2000);
+    document.addEventListener('visibilitychange', poll);
     return () => {
-      stopped = true;
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', resume);
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', poll);
     };
-  }, [phase, session, rotation, refresh, moveTo]);
+  }, [phase, session, token, rotation, tokenNumber]);
+
   const finish = useCallback(async () => {
-    if (refreshing.current) return;
-    const s = currentSession.current;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError('');
-    refreshing.current = true;
     try {
-      if (s)
-        await api(`/api/sessions/${s.id}`, {
+      if (session) {
+        await api(`/api/sessions/${session.id}`, {
           method: 'DELETE',
-          headers: { Authorization: `Bearer ${s.owner}` },
+          headers: { Authorization: `Bearer ${session.owner}` },
         });
-      ++generation.current;
-      currentSession.current = null;
-      currentToken.current = null;
+      }
+      ++runId.current;
       setSession(null);
       setToken(null);
-      moveTo('compose');
+      setPhase('compose');
     } catch {
       setError('Unable to end the session. Please try again.');
     } finally {
-      refreshing.current = false;
+      busyRef.current = false;
       setBusy(false);
     }
-  }, [moveTo]);
+  }, [session]);
+
   const copy = useCallback(() => {
-    const t = currentToken.current;
-    if (!t || t.validUntil <= performance.now() || phaseRef.current !== 'waiting') return;
-    // Start clipboard access inside the click handler, without awaiting a network request.
+    if (!token || token.validUntil <= performance.now() || phase !== 'waiting') return;
     if (!navigator.clipboard) {
-      setError('Clipboard access needs HTTPS. Select and copy the link below.');
+      setError('Clipboard access requires HTTPS. Copy the link below manually.');
       return;
     }
     void navigator.clipboard
-      .writeText(t.link)
+      .writeText(token.link)
       .then(() => setCopied(true))
-      .catch(() => setError('Copy was blocked. Select and copy the link below.'));
-  }, []);
+      .catch(() => setError('Copy was blocked. Copy the link below manually.'));
+  }, [token, phase]);
+
   return {
     phase,
     token,
@@ -285,7 +268,7 @@ export function useHandoff(rotation: boolean, skipQr = false) {
     sessionSeconds,
     copied,
     create,
-    refresh: manualRefresh,
+    refresh,
     finish,
     copy,
   };

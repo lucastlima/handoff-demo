@@ -20,7 +20,6 @@ export class HandoffError extends Error {
 }
 
 export const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{32}$/);
-export const modeSchema = z.enum(['server', 'browser']).default('server');
 
 const payloadKeySchema = z
   .string()
@@ -119,13 +118,10 @@ export async function rateLimit(
 export async function createSession(
   db: D1Database,
   input: unknown,
-  mode: unknown,
   allowedHosts = DEFAULT_HOSTS,
   now = Date.now()
 ) {
   const { payload, redirect } = validatePayload(input, allowedHosts);
-  const parsedMode = modeSchema.safeParse(mode);
-  if (!parsedMode.success) throw new HandoffError('Choose server or browser redirect.');
   const id = randomToken(16),
     owner = randomToken(),
     q = randomToken();
@@ -134,9 +130,9 @@ export async function createSession(
   await db.batch([
     db
       .prepare(
-        'INSERT INTO sessions (id, owner_hash, payload, redirect, mode, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
+        "INSERT INTO sessions (id, owner_hash, payload, redirect, mode, expires_at) VALUES (?, ?, ?, ?, 'server', ?)"
       )
-      .bind(id, ownerHash, payload, redirect, parsedMode.data, expiresAt),
+      .bind(id, ownerHash, payload, redirect, expiresAt),
     db
       .prepare('INSERT INTO tokens (hash, session_id, issued_at, expires_at) VALUES (?, ?, ?, ?)')
       .bind(tokenHash, id, now, now + TOKEN_MS),
@@ -191,10 +187,10 @@ export async function issueToken(db: D1Database, id: string, owner: string, now 
 export async function peek(db: D1Database, q: string, now = Date.now()) {
   checkToken(q);
   const row = await db
-    .prepare(`SELECT s.redirect, s.mode FROM tokens t JOIN sessions s ON s.id = t.session_id
+    .prepare(`SELECT s.redirect FROM tokens t JOIN sessions s ON s.id = t.session_id
     WHERE t.hash = ? AND t.expires_at > ? AND s.expires_at > ? AND s.consumed_at IS NULL`)
     .bind(await hash(q), now, now)
-    .first<{ redirect: string | null; mode: string }>();
+    .first<{ redirect: string | null }>();
   if (!row)
     throw new HandoffError('This link has expired or was already used. Scan a new code.', 410);
   return row;
@@ -208,22 +204,19 @@ export async function claim(db: D1Database, q: string, now = Date.now()) {
     db
       .prepare(`UPDATE sessions SET consumed_at = ? WHERE consumed_at IS NULL AND expires_at > ?
       AND id = (SELECT session_id FROM tokens WHERE hash = ? AND expires_at > ?)
-      RETURNING payload, redirect, mode`)
+      RETURNING payload, redirect`)
       .bind(now, now, tokenHash, now),
     db
       .prepare(`UPDATE sessions SET payload = '{}', redirect = NULL WHERE consumed_at IS NOT NULL
       AND id = (SELECT session_id FROM tokens WHERE hash = ?)`)
       .bind(tokenHash),
   ]);
-  const row = results[0].results[0] as
-    | { payload: string; redirect: string | null; mode: string }
-    | undefined;
+  const row = results[0].results[0] as { payload: string; redirect: string | null } | undefined;
   if (!row)
     throw new HandoffError('This link has expired or was already used. Scan a new code.', 410);
   return {
     payload: JSON.parse(row.payload) as Record<string, string>,
     redirect: row.redirect,
-    mode: row.mode,
   };
 }
 export async function cancel(db: D1Database, id: string, owner: string) {

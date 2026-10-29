@@ -60,7 +60,7 @@ const isGone = (e: unknown) => e instanceof HandoffError && e.status === 410;
 
 test('valid payload survives one claim; stored payload is erased immediately', async () => {
   const { db, sql } = fixture();
-  const s = await createSession(db, payload, 'server', undefined, 1000);
+  const s = await createSession(db, payload, undefined, 1000);
   assert.equal(s.q.length, 32);
   assert.deepEqual((await claim(db, s.q, 1001)).payload, payload);
   assert.equal((await status(db, s.id, s.owner, 1002)).status, 'complete');
@@ -70,7 +70,7 @@ test('valid payload survives one claim; stored payload is erased immediately', a
 });
 test('token is valid just before 15 seconds and invalid exactly at expiry', async () => {
   const { db, sql } = fixture();
-  const s = await createSession(db, payload, 'server', undefined, 1000);
+  const s = await createSession(db, payload, undefined, 1000);
   await peek(db, s.q, 15999);
   await assert.rejects(claim(db, s.q, 16000), isGone);
   assert.equal((await status(db, s.id, s.owner, 16000)).status, 'waiting');
@@ -78,7 +78,7 @@ test('token is valid just before 15 seconds and invalid exactly at expiry', asyn
 });
 test('rotation overlap remains valid and one claim closes every token', async () => {
   const { db, sql } = fixture();
-  const s = await createSession(db, payload, 'server', undefined, 1000);
+  const s = await createSession(db, payload, undefined, 1000);
   const next = await issueToken(db, s.id, s.owner, 11000);
   await peek(db, s.q, 12000);
   await peek(db, next.q, 12000);
@@ -88,7 +88,7 @@ test('rotation overlap remains valid and one claim closes every token', async ()
 });
 test('concurrent claims across different QR tokens have exactly one winner', async () => {
   const { db, sql } = fixture();
-  const s = await createSession(db, payload, 'server', undefined, 1000);
+  const s = await createSession(db, payload, undefined, 1000);
   const next = await issueToken(db, s.id, s.owner, 11000);
   const results = await Promise.allSettled([
     claim(db, s.q, 12000),
@@ -100,7 +100,7 @@ test('concurrent claims across different QR tokens have exactly one winner', asy
 });
 test('token issuance is owner-only and throttled', async () => {
   const { db, sql } = fixture();
-  const s = await createSession(db, payload, 'server', undefined, 1000);
+  const s = await createSession(db, payload, undefined, 1000);
   await assert.rejects(issueToken(db, s.id, 'wrong-owner', 3000));
   await assert.rejects(
     issueToken(db, s.id, s.owner, 1500),
@@ -111,7 +111,7 @@ test('token issuance is owner-only and throttled', async () => {
 });
 test('session expiry caps the last token and forbids new issuance', async () => {
   const { db, sql } = fixture();
-  const s = await createSession(db, payload, 'server', undefined, 1000);
+  const s = await createSession(db, payload, undefined, 1000);
   const last = await issueToken(db, s.id, s.owner, 300000);
   assert.equal(last.expiresAt, 301000);
   await assert.rejects(claim(db, last.q, 301000), isGone);
@@ -120,7 +120,7 @@ test('session expiry caps the last token and forbids new issuance', async () => 
 });
 test('cancel removes sessions and their tokens without permitting an unrelated owner', async () => {
   const { db, sql } = fixture();
-  const s = await createSession(db, payload, 'server', undefined, 1000);
+  const s = await createSession(db, payload, undefined, 1000);
   await cancel(db, s.id, 'wrong');
   await peek(db, s.q, 1001);
   await cancel(db, s.id, s.owner);
@@ -130,7 +130,7 @@ test('cancel removes sessions and their tokens without permitting an unrelated o
 });
 test('cleanup deletes expired sessions, orphan-free tokens, and old rate buckets', async () => {
   const { db, sql } = fixture();
-  await createSession(db, payload, 'server', undefined, 1000);
+  await createSession(db, payload, undefined, 1000);
   await rateLimit(db, '127.0.0.1', 'create', 2, 1000);
   await cleanup(db, 301000);
   for (const table of ['sessions', 'tokens', 'rate_limits'])
@@ -187,7 +187,7 @@ test('payload limits count UTF-8 bytes and reject non-text values and forbidden 
 });
 test('raw capability secrets never appear in database rows', async () => {
   const { db, sql } = fixture();
-  const s = await createSession(db, payload, 'server', undefined, 1000);
+  const s = await createSession(db, payload, undefined, 1000);
   assert.equal(sql.prepare('SELECT hash FROM tokens').get()!.hash, await hash(s.q));
   assert.equal(
     sql.prepare('SELECT owner_hash FROM sessions').get()!.owner_hash,
@@ -197,7 +197,7 @@ test('raw capability secrets never appear in database rows', async () => {
 });
 test('issuing 4th token prunes expired 1st token leaving active 3-token sliding window', async () => {
   const { db, sql } = fixture();
-  const s = await createSession(db, payload, 'server', undefined, 1000);
+  const s = await createSession(db, payload, undefined, 1000);
   await issueToken(db, s.id, s.owner, 6000);
   await issueToken(db, s.id, s.owner, 11000);
   assert.equal(

@@ -1,4 +1,3 @@
-import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 
 type RedeemResult = {
@@ -34,11 +33,7 @@ function redeemOnce(q: string) {
   return request;
 }
 
-export const Route = createFileRoute('/handoff')({
-  component: HandoffClaimPage,
-});
-
-function HandoffClaimPage() {
+export default function HandoffClaim() {
   const [state, setState] = useState<ViewState>({ kind: 'loading' });
 
   useEffect(() => {
@@ -112,7 +107,7 @@ function HandoffClaimPage() {
                 If your browser didn’t redirect automatically, continue below.
               </p>
               <p className="claim-url">{state.url}</p>
-              <a className="action-link claim-cta" href={state.url} rel="noreferrer">
+              <a className="btn btn-outline claim-cta" href={state.url} rel="noreferrer">
                 Continue to destination ↗
               </a>
             </>
@@ -159,3 +154,4 @@ function HandoffClaimPage() {
     </div>
   );
 }
+

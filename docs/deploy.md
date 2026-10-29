@@ -63,7 +63,7 @@ The `DB` binding and redirect-host settings come from `wrangler.json`. Run the d
 
 ## 5. Verify and update
 
-Open the actual HTTPS URL printed by Wrangler. Create a payload, scan its QR code, and test both redirect modes. `/api/config` should return JSON; a successful handoff also verifies the D1 connection.
+Open the actual HTTPS URL printed by Wrangler. Create a payload, scan its QR code, and test claiming both a JSON payload and a redirect preset. `/api/config` should return JSON; a successful handoff also verifies the D1 connection.
 
 For every subsequent release:
 

@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!!**/dist", "!!**/.wrangler", "!!**/src/routeTree.gen.ts", "!!**/*.svg"]
+    "includes": ["**", "!!**/dist", "!!**/.wrangler", "!!**/*.svg"]
   },
   "formatter": {
     "enabled": true,
@@ -23,9 +23,6 @@
     }
   },
   "css": {
-    "parser": {
-      "tailwindDirectives": true
-    },
     "formatter": {
       "enabled": true,
       "indentStyle": "space",

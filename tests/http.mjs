@@ -8,10 +8,10 @@ const call = (path, init = {}) =>
     redirect: 'manual',
     headers: { 'Content-Type': 'application/json', ...init.headers },
   });
-async function make(payload, mode = 'server') {
+async function make(payload) {
   const response = await call('/api/sessions', {
     method: 'POST',
-    body: JSON.stringify({ payload, mode }),
+    body: JSON.stringify({ payload }),
   });
   assert.equal(response.status, 201, await response.clone().text());
   const data = await response.json();

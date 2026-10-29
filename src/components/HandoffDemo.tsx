@@ -1,7 +1,5 @@
 import { ArrowLeft, Check, Copy, ExternalLink, Plus, RotateCw, Share2, X } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { MAX_QR_CODES, useHandoff } from '@/hooks/use-handoff';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { DEFAULT_HOSTS, validatePayload } from '../../lib/handoff';
@@ -56,12 +54,7 @@ export default function HandoffDemo() {
 
   function shareDemoUrl() {
     if (!navigator.share) return;
-    void navigator
-      .share({
-        title: 'QR Handoff Demo',
-        url: window.location.href,
-      })
-      .catch(() => {});
+    void navigator.share({ title: 'QR Handoff Demo', url: window.location.href }).catch(() => {});
   }
 
   function setRedirect(url: string) {
@@ -82,59 +75,11 @@ export default function HandoffDemo() {
       const keys = rows.map((row) => row.key);
       if (new Set(keys).size !== keys.length) throw new Error('Each field needs a unique key.');
       validatePayload(payload, hosts);
-      void handoff.create(payload, 'server');
+      void handoff.create(payload);
     } catch (error) {
       handoff.setError(error instanceof Error ? error.message : 'Check your payload.');
     }
   }
-
-  useEffect(() => {
-    const context = (
-      document as Document & {
-        modelContext?: {
-          registerTool: (tool: object, options: { signal: AbortSignal }) => void | Promise<void>;
-        };
-      }
-    ).modelContext;
-    if (!context?.registerTool) return;
-    const lifecycle = new AbortController();
-    try {
-      void Promise.resolve(
-        context.registerTool(
-          {
-            name: 'configure_handoff_payload',
-            description:
-              'Replace the desktop draft fields. Does not create a handoff or a QR link.',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                payload: {
-                  type: 'object',
-                  additionalProperties: { type: 'string' },
-                  minProperties: 1,
-                  maxProperties: 20,
-                },
-              },
-              required: ['payload'],
-              additionalProperties: false,
-            },
-            annotations: { readOnlyHint: false, untrustedContentHint: true },
-            execute(input: unknown) {
-              if (handoff.phase !== 'compose')
-                throw new Error('End the current handoff before changing the draft.');
-              const data = input as { payload?: unknown };
-              validatePayload(data?.payload, hosts);
-              const entries = Object.entries(data.payload as Record<string, string>);
-              setRows(entries.map(([key, value]) => ({ key, value })));
-              return { configured: true, fields: entries.length };
-            },
-          },
-          { signal: lifecycle.signal }
-        )
-      ).catch(() => {});
-    } catch {}
-    return () => lifecycle.abort();
-  }, [handoff.phase, hosts]);
 
   const showMobileGate = isMobile && !previewAnyway;
 
@@ -192,14 +137,14 @@ export default function HandoffDemo() {
               </p>
 
               <div className="gate-actions">
-                <Button className="primary-action" onClick={copyDemoUrl}>
+                <button type="button" className="btn btn-primary" onClick={copyDemoUrl}>
                   {urlCopied ? <Check size={15} /> : <Copy size={15} />}
                   {urlCopied ? 'Copied URL' : 'Copy URL for desktop'}
-                </Button>
+                </button>
                 {canShare && (
-                  <Button variant="outline" className="share-btn" onClick={shareDemoUrl}>
+                  <button type="button" className="btn btn-outline" onClick={shareDemoUrl}>
                     <Share2 size={15} /> Send to desktop
-                  </Button>
+                  </button>
                 )}
               </div>
 
@@ -271,29 +216,28 @@ export default function HandoffDemo() {
                           )
                         }
                       />
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="remove-row-btn"
+                      <button
+                        type="button"
+                        className="btn-icon"
                         aria-label={`Remove field ${index + 1}`}
                         disabled={rows.length <= 1}
                         onClick={() => setRows(rows.filter((_, i) => i !== index))}
                       >
                         <X size={15} />
-                      </Button>
+                      </button>
                     </div>
                   ))}
                 </div>
 
                 <div className="field-toolbar">
-                  <Button
-                    variant="outline"
-                    size="sm"
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
                     disabled={rows.length >= 20}
                     onClick={() => setRows([...rows, { key: '', value: '' }])}
                   >
                     <Plus size={14} /> Add field
-                  </Button>
+                  </button>
 
                   <div className="preset-group">
                     <span className="preset-label">Redirect preset:</span>
@@ -336,7 +280,13 @@ export default function HandoffDemo() {
                       Each token stays valid for 15s so in-flight scans still succeed.
                     </span>
                   </label>
-                  <Switch id={rotationId} checked={rotation} onCheckedChange={setRotation} />
+                  <input
+                    id={rotationId}
+                    type="checkbox"
+                    className="checkbox"
+                    checked={rotation}
+                    onChange={(e) => setRotation(e.target.checked)}
+                  />
                 </div>
 
                 <div role="alert">
@@ -347,8 +297,9 @@ export default function HandoffDemo() {
                   <span className={bytes > 2048 ? 'byte-count over' : 'byte-count'}>
                     {bytes.toLocaleString()} / 2,048 B
                   </span>
-                  <Button
-                    className="primary-action"
+                  <button
+                    type="button"
+                    className="btn btn-primary"
                     disabled={bytes > 2048 || handoff.busy}
                     onClick={submit}
                   >
@@ -357,7 +308,7 @@ export default function HandoffDemo() {
                       : isMobile
                         ? 'Create handoff link'
                         : 'Generate QR code'}
-                  </Button>
+                  </button>
                 </div>
               </fieldset>
             </section>
@@ -429,14 +380,14 @@ export default function HandoffDemo() {
                             : 'Auto-rotation paused so token #4 can expire cleanly for testing.'}
                         </p>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
                         onClick={() => void handoff.refresh()}
                         disabled={handoff.busy}
                       >
                         <RotateCw size={14} /> Resume ({MAX_QR_CODES} more)
-                      </Button>
+                      </button>
                     </div>
                   ) : (
                     <p className="token-meta">
@@ -447,18 +398,18 @@ export default function HandoffDemo() {
                   )}
 
                   <div className="scan-actions">
-                    <Button
-                      variant="outline"
-                      size="sm"
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
                       onClick={handoff.copy}
                       disabled={!handoff.token || handoff.isExpired}
                     >
                       {handoff.copied ? <Check size={14} /> : <Copy size={14} />}
                       {handoff.copied ? 'Copied' : 'Copy link'}
-                    </Button>
+                    </button>
                     {handoff.token && (
                       <a
-                        className="action-link"
+                        className="btn btn-outline btn-sm"
                         href={handoff.token.link}
                         target="_blank"
                         rel="noreferrer"
@@ -467,14 +418,14 @@ export default function HandoffDemo() {
                       </a>
                     )}
                     {!handoff.rotationPaused && (
-                      <Button
-                        variant="outline"
-                        size="sm"
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
                         onClick={() => void handoff.refresh()}
                         disabled={handoff.busy}
                       >
                         <RotateCw size={14} /> Issue new token
-                      </Button>
+                      </button>
                     )}
                   </div>
 
@@ -509,13 +460,14 @@ export default function HandoffDemo() {
                         : 'The mobile client redeemed the token via POST /api/redeem, and the payload column was wiped from D1 in the same transaction.'
                       : 'The 5-minute session expired without being claimed.'}
                   </p>
-                  <Button
-                    className="primary-action"
+                  <button
+                    type="button"
+                    className="btn btn-primary"
                     onClick={() => void handoff.finish()}
                     disabled={handoff.busy}
                   >
                     Start new handoff
-                  </Button>
+                  </button>
                 </div>
               )}
 
