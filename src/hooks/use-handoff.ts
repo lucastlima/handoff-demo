@@ -42,6 +42,7 @@ export function useHandoff(rotation: boolean) {
   const [rotationPaused, setRotationPaused] = useState(false);
   const [sessionSeconds, setSessionSeconds] = useState(300);
   const [copied, setCopied] = useState(false);
+  const [tokenNumber, setTokenNumber] = useState(1);
   const qrCodeCount = useRef(1);
   const generation = useRef(0),
     refreshing = useRef(false),
@@ -59,9 +60,9 @@ export function useHandoff(rotation: boolean) {
       const link = `${location.origin}/handoff?q=${data.q}`;
       const image = await QRCode.toDataURL(link, {
         width: 320,
-        margin: 4,
+        margin: 3,
         errorCorrectionLevel: 'M',
-        color: { dark: '#122c40', light: '#ffffff' },
+        color: { dark: '#18181b', light: '#ffffff' },
       });
       if (generationId !== generation.current || phaseRef.current !== 'waiting') return;
       if (validUntil <= performance.now())
@@ -82,6 +83,7 @@ export function useHandoff(rotation: boolean) {
       setBusy(true);
       setError('');
       qrCodeCount.current = 1;
+      setTokenNumber(1);
       setRotationPaused(false);
       setIsExpired(false);
       try {
@@ -126,6 +128,7 @@ export function useHandoff(rotation: boolean) {
     } catch (e) {
       if (generationId === generation.current && phaseRef.current === 'waiting') {
         qrCodeCount.current = Math.max(1, qrCodeCount.current - 1);
+        setTokenNumber(qrCodeCount.current);
         setError(e instanceof Error ? e.message : 'Unable to refresh the code.');
       }
     } finally {
@@ -135,6 +138,7 @@ export function useHandoff(rotation: boolean) {
   }, [renderToken]);
   const manualRefresh = useCallback(async () => {
     qrCodeCount.current = 1;
+    setTokenNumber(1);
     setRotationPaused(false);
     setIsExpired(false);
     await refresh();
@@ -172,6 +176,7 @@ export function useHandoff(rotation: boolean) {
       if (isAuto && t && now >= t.rotateAt && !refreshing.current && now - lastRefresh > 2000) {
         lastRefresh = now;
         qrCodeCount.current += 1;
+        setTokenNumber(qrCodeCount.current);
         void refresh();
       }
 
@@ -274,6 +279,7 @@ export function useHandoff(rotation: boolean) {
     setError,
     isExpired,
     rotationPaused,
+    tokenNumber,
     sessionSeconds,
     copied,
     create,

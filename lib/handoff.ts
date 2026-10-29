@@ -1,4 +1,6 @@
 // Platform-neutral handoff rules; the same SQL runs in D1 and the integration tests.
+import { z } from 'zod';
+
 export const TOKEN_MS = 15_000;
 export const SESSION_MS = 300_000;
 export const MAX_BYTES = 2048;
@@ -8,6 +10,7 @@ export const DEFAULT_HOSTS = [
   'maps.apple.com',
   'open.spotify.com',
 ];
+
 export class HandoffError extends Error {
   status: number;
   constructor(message: string, status = 400) {
@@ -15,60 +18,79 @@ export class HandoffError extends Error {
     this.status = status;
   }
 }
-export function validatePayload(input: unknown, allowedHosts = DEFAULT_HOSTS) {
-  if (!input || typeof input !== 'object' || Array.isArray(input))
-    throw new HandoffError('Use a JSON object with key/value pairs.');
-  const entries = Object.entries(input);
-  if (!entries.length || entries.length > 20)
-    throw new HandoffError('Use between 1 and 20 fields.');
-  for (const [key, value] of entries) {
+
+export const tokenSchema = z.string().regex(/^[A-Za-z0-9_-]{32}$/);
+export const modeSchema = z.enum(['server', 'browser']).default('server');
+
+const payloadKeySchema = z
+  .string()
+  .min(1, 'Keys must be non-empty.')
+  .max(64, 'Keys must be at most 64 characters.')
+  .refine((key) => key === key.trim(), 'Keys cannot have leading or trailing spaces.');
+
+function parseRedirectUrl(raw: string, allowedHosts: string[]) {
+  try {
+    const url = new URL(raw);
     if (
-      !key.trim() ||
-      key !== key.trim() ||
-      key.length > 64 ||
-      ['__proto__', 'constructor', 'prototype'].includes(key)
-    )
-      throw new HandoffError(
-        'Keys must be unique, non-empty names of up to 64 characters, without surrounding spaces.'
-      );
-    if (typeof value !== 'string') throw new HandoffError('Every value must be text.');
-  }
-  const payload = JSON.stringify(input);
-  if (new TextEncoder().encode(payload).length > MAX_BYTES)
-    throw new HandoffError('Keep the payload within 2,048 bytes.', 413);
-  const redirectValue = (input as Record<string, string>).redirect;
-  let redirect: string | null = null;
-  if (redirectValue !== undefined) {
-    try {
-      const url = new URL(redirectValue);
-      if (
-        url.protocol !== 'https:' ||
-        url.username ||
-        url.password ||
-        (url.port && url.port !== '443') ||
-        !allowedHosts.includes(url.hostname)
-      )
-        throw new Error();
-      redirect = url.href;
-    } catch {
-      throw new HandoffError(`Redirects must use HTTPS on: ${allowedHosts.join(', ')}.`);
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      (url.port && url.port !== '443') ||
+      !allowedHosts.includes(url.hostname)
+    ) {
+      return null;
     }
+    return url.href;
+  } catch {
+    return null;
   }
+}
+
+export function createPayloadSchema(allowedHosts = DEFAULT_HOSTS) {
+  return z
+    .record(payloadKeySchema, z.string({ error: 'Every value must be text.' }), {
+      error: 'Use a JSON object with key/value pairs.',
+    })
+    .refine((obj) => {
+      const count = Object.keys(obj).length;
+      return count >= 1 && count <= 20;
+    }, 'Use between 1 and 20 fields.')
+    .refine(
+      (obj) => !('redirect' in obj) || parseRedirectUrl(obj.redirect, allowedHosts) !== null,
+      `Redirects must use HTTPS on: ${allowedHosts.join(', ')}.`
+    );
+}
+
+export function validatePayload(input: unknown, allowedHosts = DEFAULT_HOSTS) {
+  const parsed = createPayloadSchema(allowedHosts).safeParse(input);
+  if (!parsed.success) {
+    throw new HandoffError(parsed.error.issues[0]?.message ?? 'Invalid payload.');
+  }
+  const payload = JSON.stringify(parsed.data);
+  if (new TextEncoder().encode(payload).length > MAX_BYTES) {
+    throw new HandoffError('Keep the payload within 2,048 bytes.', 413);
+  }
+  const redirect =
+    'redirect' in parsed.data ? parseRedirectUrl(parsed.data.redirect, allowedHosts) : null;
   return { payload, redirect };
 }
+
 export function randomToken(size = 24) {
   return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(size))))
     .replaceAll('+', '-')
     .replaceAll('/', '_')
     .replaceAll('=', '');
 }
+
 export async function hash(value: string) {
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return Array.from(new Uint8Array(bytes), (x) => x.toString(16).padStart(2, '0')).join('');
 }
+
 export function checkToken(token: string) {
-  if (!/^[A-Za-z0-9_-]{32}$/.test(token))
+  if (!tokenSchema.safeParse(token).success) {
     throw new HandoffError('This link is invalid. Scan a new code.', 404);
+  }
 }
 export async function cleanup(db: D1Database, now = Date.now()) {
   await db.batch([
@@ -102,8 +124,8 @@ export async function createSession(
   now = Date.now()
 ) {
   const { payload, redirect } = validatePayload(input, allowedHosts);
-  if (mode !== 'server' && mode !== 'browser')
-    throw new HandoffError('Choose server or browser redirect.');
+  const parsedMode = modeSchema.safeParse(mode);
+  if (!parsedMode.success) throw new HandoffError('Choose server or browser redirect.');
   const id = randomToken(16),
     owner = randomToken(),
     q = randomToken();
@@ -114,7 +136,7 @@ export async function createSession(
       .prepare(
         'INSERT INTO sessions (id, owner_hash, payload, redirect, mode, expires_at) VALUES (?, ?, ?, ?, ?, ?)'
       )
-      .bind(id, ownerHash, payload, redirect, mode, expiresAt),
+      .bind(id, ownerHash, payload, redirect, parsedMode.data, expiresAt),
     db
       .prepare('INSERT INTO tokens (hash, session_id, issued_at, expires_at) VALUES (?, ?, ?, ?)')
       .bind(tokenHash, id, now, now + TOKEN_MS),

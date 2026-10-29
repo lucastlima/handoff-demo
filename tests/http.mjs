@@ -46,7 +46,7 @@ try {
   assert.equal(shell.status, 200);
   assert.match(shell.headers.get('cache-control'), /no-store/);
   assert.equal(shell.headers.get('referrer-policy'), 'no-referrer');
-  assert.ok(shell.headers.get('content-security-policy').includes("script-src 'nonce-"));
+  assert.match(shell.headers.get('content-security-policy'), /script-src 'self'/);
   assert.equal((await shell.text()).includes('<script>alert(1)</script>'), false);
   const before = await call(`/api/sessions/${first.id}`, { headers: auth(first) });
   assert.equal((await before.json()).status, 'waiting');
@@ -72,20 +72,6 @@ try {
   console.log(
     'PASS immediate HTTP redirect; HEAD and declared prefetch do not consume; replay is blocked'
   );
-
-  const browser = await make({ redirect: 'https://www.youtube.com/?q=%3C/script%3E' }, 'browser');
-  const instant = await call(`/handoff?q=${browser.q}`);
-  assert.equal(instant.status, 200);
-  const html = await instant.text();
-  const scriptAt = html.indexOf('<script nonce=');
-  assert.ok(
-    scriptAt > 0 && scriptAt < html.indexOf('<style>') && scriptAt < html.indexOf('<body>')
-  );
-  assert.match(html, /<script nonce="[^"]+">location\.replace\(/);
-  assert.equal(/DOMContentLoaded|onload|setTimeout|fetch\(/.test(html), false);
-  assert.match(html, /<a class="button" href=/);
-  assert.equal((await redeem(browser.q)).status, 410);
-  console.log('PASS browser redirect is the first inline script; fallback is a direct anchor');
 
   const race = await make({ value: 'one winner' });
   await new Promise((resolve) => setTimeout(resolve, 1100));

@@ -13,7 +13,6 @@ const config = defineConfig({
     strictPort: true,
     proxy: {
       '/api': { target: 'http://localhost:8788', changeOrigin: false },
-      '/handoff': { target: 'http://localhost:8788', changeOrigin: false },
     },
   },
   plugins: [tanstackRouter({ target: 'react', autoCodeSplitting: true }), viteReact()],

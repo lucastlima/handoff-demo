@@ -1,46 +1,28 @@
-import {
-  ArrowLeft,
-  ArrowLeftRight,
-  ArrowRight,
-  ArrowUpRight,
-  Braces,
-  Check,
-  CheckCircle2,
-  Clock,
-  Copy,
-  Monitor,
-  Plus,
-  QrCode,
-  RefreshCw,
-  ShieldCheck,
-  Smartphone,
-  Trash2,
-} from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ArrowLeft, Check, Copy, ExternalLink, Plus, RotateCw, X } from 'lucide-react';
+import { useEffect, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { useHandoff } from '@/hooks/use-handoff';
+import { MAX_QR_CODES, useHandoff } from '@/hooks/use-handoff';
 import { DEFAULT_HOSTS, validatePayload } from '../../lib/handoff';
 
-const example = [
-  { key: 'name', value: 'Alex Morgan' },
-  { key: 'reference', value: 'DEMO-2048' },
-  { key: 'message', value: 'Pick up where you left off.' },
+const DEFAULT_FIELDS = [
+  { key: 'account', value: 'alex@acme.dev' },
+  { key: 'step', value: 'verify-device' },
+  { key: 'return_to', value: '/settings/security' },
 ];
 
 const REDIRECT_PRESETS = [
-  { label: 'Add app redirect', url: 'https://maps.apple.com/?q=London' },
-  {
-    label: 'Add Easter Egg redirect',
-    url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-  },
+  { label: 'Apple Maps', url: 'https://maps.apple.com/?q=London' },
+  { label: 'YouTube', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
 ] as const;
 
 export default function HandoffDemo() {
-  const [rows, setRows] = useState(example);
+  const [rows, setRows] = useState(DEFAULT_FIELDS);
   const [rotation, setRotation] = useState(true);
   const [hosts, setHosts] = useState(DEFAULT_HOSTS);
+  const rotationId = useId();
   const handoff = useHandoff(rotation);
+
   useEffect(() => {
     fetch('/api/config')
       .then((r) => r.json() as Promise<{ allowedRedirectHosts?: string[] }>)
@@ -49,6 +31,7 @@ export default function HandoffDemo() {
       })
       .catch(() => {});
   }, []);
+
   const payload = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   const currentRedirect = rows.find((r) => r.key === 'redirect')?.value;
   const bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
@@ -60,6 +43,12 @@ export default function HandoffDemo() {
       setRows([...rows, { key: 'redirect', value: url }]);
     }
   }
+
+  function clearRedirect() {
+    const next = rows.filter((r) => r.key !== 'redirect');
+    setRows(next.length ? next : DEFAULT_FIELDS);
+  }
+
   function submit() {
     try {
       const keys = rows.map((row) => row.key);
@@ -70,6 +59,7 @@ export default function HandoffDemo() {
       handoff.setError(error instanceof Error ? error.message : 'Check your payload.');
     }
   }
+
   useEffect(() => {
     const context = (
       document as Document & {
@@ -117,69 +107,63 @@ export default function HandoffDemo() {
     } catch {}
     return () => lifecycle.abort();
   }, [handoff.phase, hosts]);
+
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a href="/" className="brand">
-          <span className="brand-mark">
-            <ArrowLeftRight size={21} />
-          </span>
-          handoff<span className="brand-suffix">lab</span>
-        </a>
-        <span className="demo-tag">DESKTOP → MOBILE</span>
-        <span className="top-note">
-          <span className="status-dot" /> A little less friction.
-        </span>
-      </header>
-      <main className="workspace">
-        <div className="page-heading">
-          <div>
-            <p className="eyebrow">THE HANDOFF PLAYGROUND</p>
-            <h1>
-              Start here.
-              <br />
-              <span>Continue anywhere.</span>
-            </h1>
+        <div className="topbar-inner">
+          <div className="brand-group">
+            <a href="/" className="brand">
+              qr-handoff
+            </a>
+            <span className="brand-sep" aria-hidden="true">
+              /
+            </span>
+            <span className="brand-meta">Cloudflare Pages + D1</span>
           </div>
-          <p className="heading-note">
-            Build a payload. Scan a code.
-            <br />
-            Take the next step on your phone.
-          </p>
+          <span className="top-meta">Desktop → Mobile prototype</span>
         </div>
-        <nav className="steps" aria-label="Progress">
-          <span className={handoff.phase === 'compose' ? 'active' : ''}>
-            <b>01</b> Compose payload
-          </span>
-          <span className="step-line" />
-          <span className={handoff.phase !== 'compose' ? 'active' : ''}>
-            <b>02</b> Scan & continue
-          </span>
-        </nav>
-        <div className="editor-grid">
+      </header>
+
+      <main className="workspace">
+        <header className="page-intro">
+          <h1>Desktop-to-mobile session handoff</h1>
+          <p>
+            Pass small JSON state or trigger an app redirect on your phone via short-lived,
+            single-use capability tokens stored in SQLite (D1).
+          </p>
+        </header>
+
+        <div className="workbench">
           {handoff.phase === 'compose' ? (
             <section className="panel editor">
               <fieldset disabled={handoff.busy} className="editor-fields">
                 <div className="panel-heading">
-                  <div>
-                    <h2>Your payload</h2>
-                    <p>The details you want to take with you.</p>
-                  </div>
-                  <Button variant="ghost" onClick={() => setRows(example)}>
-                    Reset example
-                  </Button>
+                  <h2>Payload fields</h2>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => setRows(DEFAULT_FIELDS)}
+                  >
+                    Reset defaults
+                  </button>
                 </div>
-                <div className="field-head">
-                  <span>KEY</span>
-                  <span>VALUE</span>
+
+                <div className="field-head" aria-hidden="true">
+                  <span>Key</span>
+                  <span>Value</span>
+                  <span />
                 </div>
+
                 <div className="field-rows">
                   {rows.map((row, index) => (
                     <div className="field-row" key={index}>
                       <input
                         aria-label={`Key ${index + 1}`}
+                        placeholder="key"
                         value={row.key}
                         maxLength={64}
+                        spellCheck={false}
                         onChange={(e) =>
                           setRows(
                             rows.map((r, i) => (i === index ? { ...r, key: e.target.value } : r))
@@ -188,6 +172,7 @@ export default function HandoffDemo() {
                       />
                       <input
                         aria-label={`Value ${index + 1}`}
+                        placeholder="value"
                         value={row.value}
                         maxLength={2048}
                         onChange={(e) =>
@@ -198,79 +183,86 @@ export default function HandoffDemo() {
                       />
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="icon-sm"
+                        className="remove-row-btn"
                         aria-label={`Remove field ${index + 1}`}
+                        disabled={rows.length <= 1}
                         onClick={() => setRows(rows.filter((_, i) => i !== index))}
                       >
-                        <Trash2 size={16} />
+                        <X size={15} />
                       </Button>
                     </div>
                   ))}
                 </div>
-                <Button
-                  variant="ghost"
-                  className="add-field"
-                  disabled={rows.length >= 20}
-                  onClick={() => setRows([...rows, { key: '', value: '' }])}
-                >
-                  <Plus size={17} /> Add a field
-                </Button>
-                <div className="payload-shortcuts">
-                  {REDIRECT_PRESETS.map((preset) => (
-                    <Button
-                      key={preset.url}
-                      variant="ghost"
-                      onClick={() => setRedirect(preset.url)}
-                      disabled={
-                        currentRedirect === preset.url || (rows.length >= 20 && !currentRedirect)
-                      }
-                    >
-                      <ArrowUpRight size={15} /> {preset.label}
-                    </Button>
-                  ))}
+
+                <div className="field-toolbar">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={rows.length >= 20}
+                    onClick={() => setRows([...rows, { key: '', value: '' }])}
+                  >
+                    <Plus size={14} /> Add field
+                  </Button>
+
+                  <div className="preset-group">
+                    <span className="preset-label">Redirect preset:</span>
+                    {REDIRECT_PRESETS.map((preset) => (
+                      <button
+                        key={preset.url}
+                        type="button"
+                        className={`chip-button ${currentRedirect === preset.url ? 'active' : ''}`}
+                        onClick={() => setRedirect(preset.url)}
+                        disabled={rows.length >= 20 && !('redirect' in payload)}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                    {'redirect' in payload && (
+                      <button type="button" className="text-button" onClick={clearRedirect}>
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 </div>
+
                 {'redirect' in payload && (
-                  <div className="redirect-settings">
-                    <h3>App-to-app redirect</h3>
+                  <div className="redirect-callout">
                     <p>
-                      Leverages iOS Universal Links and Android App Links to open the installed
-                      native app directly when scanned from the phone camera, seamlessly falling
-                      back to the mobile browser if the app isn't installed.
+                      <strong>HTTP 302 redirect active.</strong> Scanning claims the token and
+                      redirects immediately instead of rendering the payload viewer (triggers iOS
+                      Universal Links / Android App Links when installed).
                     </p>
-                    <p className="redirect-destinations">
-                      Allowed destinations: {hosts.join(', ')}.
-                    </p>
+                    <p className="callout-meta">Allowed hosts: {hosts.join(', ')}</p>
                   </div>
                 )}
+
                 <div className="rule" />
+
                 <div className="setting-line">
-                  <div>
-                    <h3>Keep your QR moving</h3>
-                    <p>Rotate the link automatically every 5 seconds.</p>
-                  </div>
-                  <Switch
-                    aria-label="Rotate QR code"
-                    checked={rotation}
-                    onCheckedChange={setRotation}
-                  />
+                  <label htmlFor={rotationId} className="setting-copy">
+                    <span className="setting-title">Auto-rotate QR every 5 seconds</span>
+                    <span className="setting-desc">
+                      Each token stays valid for 15s so in-flight camera scans still succeed.
+                    </span>
+                  </label>
+                  <Switch id={rotationId} checked={rotation} onCheckedChange={setRotation} />
                 </div>
-                <div className="info-note">
-                  <ShieldCheck size={18} />
-                  <span>Each link lasts 15 seconds and can be used once.</span>
-                </div>
+
                 <div role="alert">
                   {handoff.error && <p className="error-box">{handoff.error}</p>}
                 </div>
+
                 <div className="editor-footer">
-                  <span className={bytes > 2048 ? 'error-text' : 'byte-count'}>
-                    {bytes} / 2,048 bytes
+                  <span className={bytes > 2048 ? 'byte-count over' : 'byte-count'}>
+                    {bytes.toLocaleString()} / 2,048 B
                   </span>
                   <Button
                     className="primary-action"
                     disabled={bytes > 2048 || handoff.busy}
                     onClick={submit}
                   >
-                    {handoff.busy ? 'Creating…' : 'Create handoff'} <ArrowRight size={18} />
+                    {handoff.busy ? 'Creating session…' : 'Generate QR code'}
                   </Button>
                 </div>
               </fieldset>
@@ -278,181 +270,208 @@ export default function HandoffDemo() {
           ) : (
             <section className="panel scan-panel">
               <div className="scan-top">
-                <Button
-                  variant="ghost"
+                <button
+                  type="button"
+                  className="back-link"
                   disabled={handoff.busy}
                   onClick={() => void handoff.finish()}
                 >
-                  <ArrowLeft size={16} /> End & edit
-                </Button>
+                  <ArrowLeft size={15} /> Back to editor
+                </button>
                 <span className="session-time">
-                  <Clock size={14} /> {Math.floor(handoff.sessionSeconds / 60)}:
+                  Session TTL {Math.floor(handoff.sessionSeconds / 60)}:
                   {String(handoff.sessionSeconds % 60).padStart(2, '0')}
                 </span>
               </div>
+
               {handoff.phase === 'waiting' ? (
-                <>
-                  <span className={`live-pill ${handoff.isExpired ? 'expired' : ''}`}>
-                    <span className={`status-dot ${handoff.isExpired ? 'error' : ''}`} />{' '}
-                    {handoff.isExpired
-                      ? 'CODE EXPIRED · SCAN TO TEST ERROR'
-                      : 'WAITING FOR YOUR PHONE'}
-                  </span>
-                  <h2>{handoff.isExpired ? 'Code expired.' : 'Over to your phone.'}</h2>
-                  <p className="scan-subtitle">
-                    {handoff.isExpired
-                      ? 'Scan this expired code to see the rejection error on your phone.'
-                      : 'Open your camera and scan the code.'}
-                  </p>
-                  <div className={`qr-container ${handoff.isExpired ? 'expired' : ''}`}>
+                <div className="scan-body">
+                  <div className="scan-header">
+                    <span className={`status-badge ${handoff.isExpired ? 'expired' : 'live'}`}>
+                      {handoff.isExpired ? 'Expired' : 'Active'}
+                    </span>
+                    <h2>{handoff.isExpired ? 'Token expired' : 'Scan with phone camera'}</h2>
+                    <p className="scan-subtitle">
+                      {handoff.isExpired
+                        ? 'This token passed its 15-second TTL. Scan it or open the link below to verify the backend 410 response.'
+                        : 'Scan the QR code on your phone, or open the link in a new tab to test the claim flow locally.'}
+                    </p>
+                  </div>
+
+                  <div className={`qr-frame ${handoff.isExpired ? 'expired' : ''}`}>
                     {handoff.token ? (
                       <img
                         src={handoff.token.image}
-                        alt="Scan to receive this handoff on your phone"
-                        width={320}
-                        height={320}
+                        alt="QR code for mobile handoff"
+                        width={260}
+                        height={260}
                       />
                     ) : (
                       <div className="qr-empty">
-                        <QrCode size={54} />
-                        <p>{handoff.busy ? 'Generating a fresh code…' : 'No code active.'}</p>
+                        <p>{handoff.busy ? 'Issuing token…' : 'No active token'}</p>
                       </div>
                     )}
                   </div>
+
                   {handoff.rotationPaused ? (
-                    <div className="max-rotations-card">
-                      <div className="max-rotations-text">
-                        <strong>Max rotations reached (4/4)</strong>
+                    <div className="rotation-paused">
+                      <div>
+                        <strong>
+                          Paused after {MAX_QR_CODES} tokens ({handoff.tokenNumber}/{MAX_QR_CODES})
+                        </strong>
                         <p>
                           {handoff.isExpired
-                            ? 'QRCode 4 is expired in the backend. Scan it with your phone to see the rejection error.'
-                            : 'Auto-rotation paused. QRCode 4 is active in the backend.'}
+                            ? 'Token #4 is now expired on the server so you can test replay/expiry handling.'
+                            : 'Auto-rotation paused so token #4 can expire cleanly for testing.'}
                         </p>
                       </div>
                       <Button
                         variant="outline"
+                        size="sm"
                         onClick={() => void handoff.refresh()}
                         disabled={handoff.busy}
                       >
-                        <RefreshCw size={14} /> Restart for 4 more rotations
+                        <RotateCw size={14} /> Resume ({MAX_QR_CODES} more)
                       </Button>
                     </div>
                   ) : (
-                    <p className="rotation-note">
-                      <RefreshCw size={13} />{' '}
-                      {rotation ? 'Refreshes every 5 seconds' : 'Automatic rotation is off'}
+                    <p className="token-meta">
+                      {rotation
+                        ? `Token ${handoff.tokenNumber}/${MAX_QR_CODES} · rotates every 5s · 15s TTL`
+                        : 'Static token · 15s TTL (auto-rotation off)'}
                     </p>
                   )}
+
                   <div className="scan-actions">
                     <Button
-                      className="primary-action"
+                      variant="outline"
+                      size="sm"
                       onClick={handoff.copy}
-                      disabled={!handoff.token}
+                      disabled={!handoff.token || handoff.isExpired}
                     >
-                      {handoff.copied ? <Check size={16} /> : <Copy size={16} />}
-                      {handoff.copied ? 'Link copied' : 'Copy current link'}
+                      {handoff.copied ? <Check size={14} /> : <Copy size={14} />}
+                      {handoff.copied ? 'Copied' : 'Copy link'}
                     </Button>
+                    {handoff.token && (
+                      <a
+                        className="action-link"
+                        href={handoff.token.link}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open in tab <ExternalLink size={13} />
+                      </a>
+                    )}
                     {!handoff.rotationPaused && (
                       <Button
                         variant="outline"
-                        className="refresh-action"
+                        size="sm"
                         onClick={() => void handoff.refresh()}
                         disabled={handoff.busy}
                       >
-                        <RefreshCw size={16} /> Refresh
+                        <RotateCw size={14} /> Issue new token
                       </Button>
                     )}
                   </div>
+
                   {handoff.token && (
-                    <input
-                      className="share-link"
-                      aria-label="Current handoff link"
-                      value={handoff.token.link}
-                      readOnly
-                      onFocus={(event) => event.target.select()}
-                    />
+                    <div className="url-readout">
+                      <input
+                        className="share-link"
+                        aria-label="Current handoff link"
+                        value={handoff.token.link}
+                        readOnly
+                        onFocus={(event) => event.target.select()}
+                      />
+                    </div>
                   )}
-                  <p className="scan-fineprint">
-                    A copied link keeps its original 15-second expiry.
-                  </p>
-                </>
+                </div>
               ) : (
                 <div className="result-panel">
-                  <div className="result-icon">
-                    {handoff.phase === 'complete' ? (
-                      <CheckCircle2 size={48} />
-                    ) : (
-                      <Clock size={48} />
-                    )}
-                  </div>
+                  <span
+                    className={`status-badge ${handoff.phase === 'complete' ? 'claimed' : 'expired'}`}
+                  >
+                    {handoff.phase === 'complete' ? 'Claimed' : 'Session ended'}
+                  </span>
                   <h2>
                     {handoff.phase === 'complete'
-                      ? 'The handoff is complete.'
-                      : 'This session has ended.'}
+                      ? 'Payload claimed on mobile'
+                      : 'Session TTL elapsed'}
                   </h2>
                   <p>
                     {handoff.phase === 'complete'
                       ? 'redirect' in payload
-                        ? 'The redirect was issued. Check your phone to confirm the destination opened.'
-                        : 'Your phone claimed the payload. All links for this handoff are now closed.'
-                      : 'Create a new handoff to keep going.'}
+                        ? 'The token was redeemed and the server returned an HTTP 302 redirect. Any overlapping tokens for this session are now invalidated.'
+                        : 'The mobile client redeemed the token via POST /api/redeem, and the payload column was wiped from D1 in the same transaction.'
+                      : 'The 5-minute session expired without being claimed.'}
                   </p>
                   <Button
                     className="primary-action"
                     onClick={() => void handoff.finish()}
                     disabled={handoff.busy}
                   >
-                    Create another handoff <ArrowRight size={16} />
+                    Start new handoff
                   </Button>
                 </div>
               )}
+
               <div role="alert">
                 {handoff.error && <p className="error-box">{handoff.error}</p>}
               </div>
             </section>
           )}
-          <aside className="preview-column">
-            <section className="json-panel">
-              <div className="json-heading">
-                <span>
-                  <Braces size={16} /> Payload preview
+
+          <aside className="sidebar">
+            <section className="sidebar-card">
+              <div className="sidebar-heading">
+                <h2>Request JSON</h2>
+                <span className="mono-meta">
+                  {rows.length} {rows.length === 1 ? 'key' : 'keys'} · {bytes} B
                 </span>
-                <span>JSON</span>
               </div>
-              <pre>{JSON.stringify(payload, null, 2)}</pre>
-              <div className="json-footer">
-                <span className="status-dot" /> Stored temporarily. Carried securely.
-              </div>
+              <pre className="json-preview">{JSON.stringify(payload, null, 2)}</pre>
             </section>
-            <section className="journey-card">
-              <div className="journey-icons">
-                <Monitor />
-                <span />
-                <ArrowRight size={18} />
-                <span />
-                <Smartphone />
+
+            <section className="sidebar-card">
+              <div className="sidebar-heading">
+                <h2>Implementation notes</h2>
               </div>
-              <h3>One scan. Same context.</h3>
-              <p>
-                The code carries a short, single-use link. Your payload stays on the server until
-                your phone claims it.
-              </p>
-              <div className="redirect-hint">
-                <ArrowUpRight size={18} />
-                <span>
-                  {'redirect' in payload
-                    ? 'Uses iOS Universal Links & Android App Links to open the native app.'
-                    : 'Add a redirect field to continue to an installed app or website.'}
-                </span>
-              </div>
+              <dl className="spec-list">
+                <div>
+                  <dt>Opaque 192-bit token</dt>
+                  <dd>
+                    The QR encodes only <code>/handoff?q=…</code>, keeping QR density constant up to
+                    the 2 KB limit.
+                  </dd>
+                </div>
+                <div>
+                  <dt>Hashed at rest</dt>
+                  <dd>
+                    Only SHA-256 digests of tokens and session owner secrets are stored in D1.
+                  </dd>
+                </div>
+                <div>
+                  <dt>Sliding-window rotation</dt>
+                  <dd>
+                    Issuing a token every 5s with a 15s expiry keeps up to 3 overlapping tokens
+                    valid during a scan.
+                  </dd>
+                </div>
+                <div>
+                  <dt>Atomic single-use claim</dt>
+                  <dd>
+                    Claiming marks the session consumed and overwrites <code>payload</code> with{' '}
+                    <code>{'{}'}</code> in a single D1 batch.
+                  </dd>
+                </div>
+              </dl>
             </section>
           </aside>
         </div>
+
         <footer className="workspace-footer">
-          <span>Made for the moment between devices.</span>
-          <span>
-            15s links <i>·</i> One-time use <i>·</i> 2 KB payloads
-          </span>
+          <span>Cloudflare Pages Functions + D1 SQLite</span>
+          <span>15s token TTL · 5m max session · single-use claim</span>
         </footer>
       </main>
     </div>

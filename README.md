@@ -16,9 +16,9 @@ The generated Vite configuration, file-based router, `.cta.json`, `tsr.config.js
 ## Layout
 
 ```text
-src/                 React interface and the official TanStack router
+src/                 React interface and TanStack Router routes (/ and /handoff)
 functions/           Cloudflare Pages HTTP handlers
-lib/                 Handoff rules, D1 access, and mobile responses
+lib/                 Handoff rules, D1 access, and HTTP helpers
 migrations/          One plain SQL migration
 public/              Static assets, headers, and Function invocation rules
 tests/               Core, routing, and live API checks
